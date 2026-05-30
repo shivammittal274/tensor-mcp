@@ -8,3 +8,9 @@ vendored/*/venv/
 vendored/*/node_modules/
 .DS_Store
 *.log
+
+# Python bytecode (vendored services run as subprocesses; bytecode is per-machine)
+__pycache__/
+*.pyc
+*.pyo
+
