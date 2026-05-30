@@ -1,0 +1,21 @@
+{
+  "name": "@tensor-mcp/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    "./vault": "./src/vault.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tensor-mcp/keyring": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "typescript": "catalog:"
+  }
+}
