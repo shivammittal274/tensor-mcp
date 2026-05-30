@@ -6,6 +6,7 @@ import {
   setDefaultStore,
 } from "@tensor-mcp/keyring";
 
+// Matches OAuth2 token-endpoint JSON shape (snake_case is intentional).
 export interface TokenBlob {
   access_token: string;
   refresh_token?: string;
@@ -17,13 +18,31 @@ let storeInit: Promise<void> | null = null;
 
 function ensureDefaultStore(): Promise<void> {
   if (hasDefaultStore()) return Promise.resolve();
-  if (storeInit) return storeInit;
-  storeInit = createDefaultStore().then((store) => {
-    if (!hasDefaultStore()) setDefaultStore(store);
-  });
+  storeInit ??= createDefaultStore().then(
+    (store) => {
+      if (!hasDefaultStore()) setDefaultStore(store);
+    },
+    (err) => {
+      storeInit = null;
+      throw err;
+    },
+  );
   return storeInit;
 }
 
+function isTokenBlob(v: unknown): v is TokenBlob {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as Record<string, unknown>).access_token === "string"
+  );
+}
+
+/**
+ * Thin OAuth-token-blob wrapper over @tensor-mcp/keyring's Entry API.
+ * JSON-encodes TokenBlob values for the OS keychain. Treats missing entries
+ * as null on read; idempotent on delete.
+ */
 export class Vault {
   private readonly service: string;
 
@@ -40,13 +59,27 @@ export class Vault {
   async get(connectionId: string): Promise<TokenBlob | null> {
     await ensureDefaultStore();
     const entry = new Entry(this.service, connectionId);
+    let raw: string;
     try {
-      const raw = await entry.getPassword();
-      return JSON.parse(raw) as TokenBlob;
+      raw = await entry.getPassword();
     } catch (err) {
       if (err instanceof KeyringError && err.kind === "NoEntry") return null;
       throw err;
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(
+        `Vault: corrupted JSON for connectionId=${connectionId}`,
+      );
+    }
+    if (!isTokenBlob(parsed)) {
+      throw new Error(
+        `Vault: invalid token shape for connectionId=${connectionId}`,
+      );
+    }
+    return parsed;
   }
 
   async delete(connectionId: string): Promise<void> {

@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "bun:test";
+import { Entry, KeyringError } from "@tensor-mcp/keyring";
 import { Vault, type TokenBlob } from "../src/vault";
 
 const TEST_SERVICE = "com.tensormcp.cli.test";
@@ -13,9 +14,17 @@ describe("Vault", () => {
   const vault = new Vault({ service: TEST_SERVICE });
 
   afterEach(async () => {
-    // Clean up between tests
-    await vault.delete("test-conn").catch(() => {});
-    await vault.delete("never-stored").catch(() => {});
+    const cleanup = async (id: string) => {
+      try {
+        await vault.delete(id);
+      } catch (err) {
+        if (err instanceof KeyringError && err.kind === "NoEntry") return;
+        throw err;
+      }
+    };
+    await cleanup("test-conn");
+    await cleanup("never-stored");
+    await cleanup("corrupt-conn");
   });
 
   it("stores and retrieves a token blob", async () => {
@@ -49,5 +58,28 @@ describe("Vault", () => {
 
   it("delete is idempotent (no throw on missing)", async () => {
     await expect(vault.delete("never-stored")).resolves.toBeUndefined();
+  });
+
+  it("roundtrips a minimal blob with only access_token", async () => {
+    await vault.set("test-conn", { access_token: "minimal" });
+    const got = await vault.get("test-conn");
+    expect(got?.access_token).toBe("minimal");
+    expect(got?.refresh_token).toBeUndefined();
+    expect(got?.expires_at).toBeUndefined();
+    expect(got?.scopes).toBeUndefined();
+  });
+
+  it("throws on corrupted JSON in the keychain", async () => {
+    const entry = new Entry(TEST_SERVICE, "corrupt-conn");
+    await entry.setPassword("this-is-not-json{");
+    await expect(vault.get("corrupt-conn")).rejects.toThrow(/corrupted JSON/);
+  });
+
+  it("throws when stored value is valid JSON but wrong shape", async () => {
+    const entry = new Entry(TEST_SERVICE, "corrupt-conn");
+    await entry.setPassword(JSON.stringify({ foo: "bar" }));
+    await expect(vault.get("corrupt-conn")).rejects.toThrow(
+      /invalid token shape/,
+    );
   });
 });
