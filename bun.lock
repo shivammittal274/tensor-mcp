@@ -65,7 +65,7 @@
         "typescript": "catalog:",
       },
     },
-    "services": {
+    "packages/services": {
       "name": "@tensor-mcp/services",
       "version": "0.1.0",
       "dependencies": {
@@ -261,7 +261,7 @@
 
     "@tensor-mcp/runtime": ["@tensor-mcp/runtime@workspace:packages/runtime"],
 
-    "@tensor-mcp/services": ["@tensor-mcp/services@workspace:services"],
+    "@tensor-mcp/services": ["@tensor-mcp/services@workspace:packages/services"],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.10.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg=="],
 

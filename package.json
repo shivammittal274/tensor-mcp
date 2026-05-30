@@ -3,10 +3,7 @@
   "private": true,
   "type": "module",
   "workspaces": {
-    "packages": [
-      "packages/*",
-      "services"
-    ],
+    "packages": ["packages/*"],
     "catalog": {
       "effect": "^3.19.15",
       "tsdown": "^0.18.4",
