@@ -1,0 +1,15 @@
+{
+  "name": "@tensor-mcp/cli",
+  "private": true,
+  "type": "module",
+  "bin": { "tensor-mcp": "./src/index.ts" },
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@tensor-mcp/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

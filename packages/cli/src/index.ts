@@ -1,0 +1,5 @@
+#!/usr/bin/env bun
+import { dispatch } from "./dispatch";
+
+const code = await dispatch(Bun.argv.slice(2));
+process.exit(code);

@@ -5,6 +5,18 @@
     "": {
       "name": "tensor-mcp",
     },
+    "packages/cli": {
+      "name": "@tensor-mcp/cli",
+      "bin": {
+        "tensor-mcp": "./src/index.ts",
+      },
+      "dependencies": {
+        "@tensor-mcp/runtime": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/keyring": {
       "name": "@tensor-mcp/keyring",
       "version": "0.1.0",
@@ -207,6 +219,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.4", "", { "os": "win32", "cpu": "x64" }, "sha512-QVTUovf40zgTqlFVrKA1uXMVvU2QWEFWfAH8Wdc48IxLvrJMQVMBRjuQyUpzZCDkakImib9eVazbWlC6ksWtJw=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
+
+    "@tensor-mcp/cli": ["@tensor-mcp/cli@workspace:packages/cli"],
 
     "@tensor-mcp/keyring": ["@tensor-mcp/keyring@workspace:packages/keyring"],
 
