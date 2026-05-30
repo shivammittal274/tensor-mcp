@@ -53,6 +53,7 @@ describe("connect command", () => {
       const code = await runConnect([], {
         vaultService: TEST_VAULT_SERVICE,
         indexPath,
+        skipIngest: true,
         connectImpl: async () => {
           throw new Error("should not be called");
         },
@@ -71,6 +72,7 @@ describe("connect command", () => {
       const code = await runConnect(["notion"], {
         vaultService: TEST_VAULT_SERVICE,
         indexPath,
+        skipIngest: true,
         connectImpl: async () => {
           throw new Error("should not be called");
         },
@@ -97,6 +99,7 @@ describe("connect command", () => {
       const code = await runConnect(["linear"], {
         vaultService: TEST_VAULT_SERVICE,
         indexPath,
+        skipIngest: true,
         connectImpl: async (service) => {
           expect(service).toBe("linear");
           return { blob: fakeBlob, client_id: "dyn_xyz" };
@@ -127,6 +130,7 @@ describe("connect command", () => {
       const code = await runConnect(["linear"], {
         vaultService: TEST_VAULT_SERVICE,
         indexPath,
+        skipIngest: true,
         connectImpl: async () => {
           throw new Error("user cancelled OAuth");
         },
@@ -157,6 +161,7 @@ describe("connect command", () => {
       const code = await runConnect(["linear"], {
         vaultService: TEST_VAULT_SERVICE,
         indexPath,
+        skipIngest: true,
         connectImpl: async () => ({
           blob: { access_token: "new_token" },
           client_id: "new_cid",

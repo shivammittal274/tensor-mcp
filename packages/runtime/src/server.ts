@@ -10,28 +10,13 @@ import { fileURLToPath } from "node:url";
 import { Catalog } from "./catalog/catalog";
 import { ConnectionsIndex } from "./connections-index";
 import { BM25Search, type ToolIndexable } from "./search/bm25";
+import { DEFAULT_SERVICE_REGISTRY } from "./service-registry";
 import { forgeAuthData } from "./subprocess/auth_data";
 import { connectMcpClient } from "./subprocess/mcp_client";
 import { SpawnPool, type SpawnPoolEntry } from "./subprocess/spawn-pool";
 import { Vault } from "./vault";
 
 const DEFAULT_VAULT_SERVICE = "com.tensormcp.cli";
-
-const DEFAULT_REGISTRY: Record<string, SpawnPoolEntry> = {
-  linear: {
-    vendorDir: "vendored/linear",
-    commandTemplate: [
-      "uv",
-      "run",
-      "--with-requirements",
-      "requirements.txt",
-      "python",
-      "server.py",
-      "--port",
-      "{{PORT}}",
-    ],
-  },
-};
 
 const SEARCH_TOOLS_DEF = {
   name: "search_tools",
@@ -227,7 +212,7 @@ export async function runMcpServer(
 ): Promise<void> {
   const vaultService = config.vaultService ?? DEFAULT_VAULT_SERVICE;
   const tensorMcpRoot = config.tensorMcpRoot ?? findWorkspaceRoot();
-  const registry = config.serviceRegistry ?? DEFAULT_REGISTRY;
+  const registry = config.serviceRegistry ?? DEFAULT_SERVICE_REGISTRY;
 
   log("opening catalog...");
   const catalog = new Catalog({ path: config.catalogPath });

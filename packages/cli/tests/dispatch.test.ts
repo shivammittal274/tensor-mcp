@@ -8,6 +8,7 @@ const realServe = (await import("../src/commands/serve")).runServe;
 const realConnect = (await import("../src/commands/connect")).runConnect;
 const realList = (await import("../src/commands/list")).runList;
 const realDisconnect = (await import("../src/commands/disconnect")).runDisconnect;
+const realIngest = (await import("../src/commands/ingest")).runIngest;
 
 let mocksActive = true;
 // biome-ignore lint/suspicious/noExplicitAny: spy holders for module mocks
@@ -18,6 +19,8 @@ let connectSpy: any;
 let listSpy: any;
 // biome-ignore lint/suspicious/noExplicitAny: spy holders for module mocks
 let disconnectSpy: any;
+// biome-ignore lint/suspicious/noExplicitAny: spy holders for module mocks
+let ingestSpy: any;
 
 // biome-ignore lint/suspicious/noExplicitAny: rest-args proxy must accept any signature
 mock.module("../src/commands/serve", () => ({
@@ -36,6 +39,11 @@ mock.module("../src/commands/list", () => ({
 mock.module("../src/commands/disconnect", () => ({
   runDisconnect: (...args: any[]) =>
     mocksActive ? disconnectSpy(args[0]) : (realDisconnect as any)(...args),
+}));
+// biome-ignore lint/suspicious/noExplicitAny: rest-args proxy must accept any signature
+mock.module("../src/commands/ingest", () => ({
+  runIngest: (...args: any[]) =>
+    mocksActive ? ingestSpy(args[0]) : (realIngest as any)(...args),
 }));
 
 describe("dispatch", () => {
@@ -67,6 +75,7 @@ describe("dispatch", () => {
     connectSpy = mock(async () => 42);
     listSpy = mock(async () => 42);
     disconnectSpy = mock(async () => 42);
+    ingestSpy = mock(async () => 42);
   });
 
   afterEach(() => {
@@ -89,6 +98,7 @@ describe("dispatch", () => {
     expect(connectSpy).not.toHaveBeenCalled();
     expect(listSpy).not.toHaveBeenCalled();
     expect(disconnectSpy).not.toHaveBeenCalled();
+    expect(ingestSpy).not.toHaveBeenCalled();
   });
 
   it("prints usage and returns 0 on --help", async () => {
@@ -159,5 +169,22 @@ describe("dispatch", () => {
     expect(serveSpy).not.toHaveBeenCalled();
     expect(connectSpy).not.toHaveBeenCalled();
     expect(disconnectSpy).not.toHaveBeenCalled();
+    expect(ingestSpy).not.toHaveBeenCalled();
+  });
+
+  it("dispatches ingest with remaining args", async () => {
+    const { dispatch } = await import("../src/dispatch");
+    const code = await dispatch(["ingest", "linear"]);
+    expect(code).toBe(42);
+    expect(ingestSpy).toHaveBeenCalledTimes(1);
+    expect(ingestSpy).toHaveBeenCalledWith(["linear"]);
+  });
+
+  it("dispatches ingest with no service arg", async () => {
+    const { dispatch } = await import("../src/dispatch");
+    const code = await dispatch(["ingest"]);
+    expect(code).toBe(42);
+    expect(ingestSpy).toHaveBeenCalledTimes(1);
+    expect(ingestSpy).toHaveBeenCalledWith([]);
   });
 });

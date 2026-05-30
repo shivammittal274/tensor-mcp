@@ -1,13 +1,23 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
-  Vault,
+  Catalog,
   ConnectionsIndex,
+  DEFAULT_SERVICE_REGISTRY,
+  ingestService,
+  Vault,
   connectLinear,
+  type SpawnPoolEntry,
   type TokenBlob,
 } from "@tensor-mcp/runtime";
 
 export interface RunConnectOptions {
   vaultService?: string;
   indexPath?: string;
+  catalogPath?: string;
+  tensorMcpRoot?: string;
+  skipIngest?: boolean;
   connectImpl?: (
     service: string,
   ) => Promise<{ blob: TokenBlob; client_id?: string }>;
@@ -32,6 +42,54 @@ const SUPPORTED_SERVICES: Record<
 };
 
 const supportedList = () => Object.keys(SUPPORTED_SERVICES).join(", ");
+
+function findWorkspaceRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 10; i++) {
+    const pkg = join(dir, "package.json");
+    if (existsSync(pkg)) {
+      try {
+        const data = require(pkg);
+        if (data?.name === "tensor-mcp") return dir;
+      } catch {
+        /* ignore */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
+
+async function runAutoIngest(
+  service: string,
+  registryEntry: SpawnPoolEntry,
+  tensorMcpRoot: string,
+  catalogPath?: string,
+): Promise<void> {
+  process.stderr.write(
+    `Connected. Ingesting ${service} tools into the catalog...\n`,
+  );
+  const catalog = new Catalog({ path: catalogPath });
+  await catalog.open();
+  try {
+    const n = await ingestService(catalog, {
+      service,
+      cwd: join(tensorMcpRoot, registryEntry.vendorDir),
+      command: registryEntry.commandTemplate,
+      envInject: registryEntry.envInject,
+      readinessTimeoutMs: 60_000,
+    });
+    process.stderr.write(`Indexed ${n} ${service} tools.\n`);
+  } catch (err) {
+    process.stderr.write(
+      `Warning: ingest failed (${(err as Error).message}). You can retry with 'tensor-mcp ingest ${service}'.\n`,
+    );
+  } finally {
+    catalog.close();
+  }
+}
 
 export async function runConnect(
   args: string[],
@@ -85,5 +143,19 @@ export async function runConnect(
   process.stdout.write(
     `Connected ${service} (${connectionId}). Token stored in OS keychain.\n`,
   );
+
+  if (!opts.skipIngest) {
+    const registryEntry = DEFAULT_SERVICE_REGISTRY[service];
+    if (registryEntry) {
+      const tensorMcpRoot = opts.tensorMcpRoot ?? findWorkspaceRoot();
+      await runAutoIngest(
+        service,
+        registryEntry,
+        tensorMcpRoot,
+        opts.catalogPath,
+      );
+    }
+  }
+
   return 0;
 }

@@ -10,6 +10,9 @@ export {
   type McpToolResult,
 } from "./subprocess/mcp_client";
 export { SpawnPool, type SpawnPoolEntry } from "./subprocess/spawn-pool";
+export { Catalog, type CatalogTool, type CatalogOptions } from "./catalog/catalog";
+export { ingestService, type IngestServiceConfig } from "./catalog/ingest";
+export { DEFAULT_SERVICE_REGISTRY } from "./service-registry";
 export {
   runMcpServer,
   handleSearch,

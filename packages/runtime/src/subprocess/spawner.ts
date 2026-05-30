@@ -89,10 +89,16 @@ export async function spawnService(
 ): Promise<SpawnedService> {
   const port = config.port ?? (await findEphemeralPort());
 
-  const args = config.command.map((s) => s.replace("{{PORT}}", String(port)));
+  const portStr = String(port);
+  const args = config.command.map((s) => s.replace("{{PORT}}", portStr));
   const cmd = args[0];
   if (!cmd) throw new Error("spawnService: empty command");
   const cmdArgs = args.slice(1);
+
+  const substitutedEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(config.envInject ?? {})) {
+    substitutedEnv[key] = value.replace("{{PORT}}", portStr);
+  }
 
   let proc: ReturnType<typeof Bun.spawn>;
   try {
@@ -101,7 +107,7 @@ export async function spawnService(
       env: {
         ...process.env,
         AUTH_DATA: config.authData,
-        ...(config.envInject ?? {}),
+        ...substitutedEnv,
       },
       stdout: "pipe",
       stderr: "pipe",

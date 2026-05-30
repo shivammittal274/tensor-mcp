@@ -2,10 +2,12 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_SERVICE_REGISTRY,
   Vault,
   connectMcpClient,
   forgeAuthData,
   spawnService,
+  type SpawnPoolEntry,
   type SpawnedService,
 } from "@tensor-mcp/runtime";
 
@@ -16,26 +18,7 @@ export interface RunDevCallOptions {
 
 const DEFAULT_VAULT_SERVICE = "com.tensormcp.cli";
 
-interface ServiceSpawnConfig {
-  vendorDir: string;
-  commandTemplate: string[];
-}
-
-const SERVICE_REGISTRY: Record<string, ServiceSpawnConfig> = {
-  linear: {
-    vendorDir: "vendored/linear",
-    commandTemplate: [
-      "uv",
-      "run",
-      "--with-requirements",
-      "requirements.txt",
-      "python",
-      "server.py",
-      "--port",
-      "{{PORT}}",
-    ],
-  },
-};
+const SERVICE_REGISTRY: Record<string, SpawnPoolEntry> = DEFAULT_SERVICE_REGISTRY;
 
 function findWorkspaceRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -111,6 +94,7 @@ export async function runDevCall(
       service,
       cwd: vendorCwd,
       command: registryEntry.commandTemplate,
+      envInject: registryEntry.envInject,
       authData,
       readinessTimeoutMs: 60_000,
     });

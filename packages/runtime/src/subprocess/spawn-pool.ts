@@ -4,6 +4,7 @@ import { spawnService, type SpawnedService } from "./spawner";
 export interface SpawnPoolEntry {
   vendorDir: string;
   commandTemplate: string[];
+  envInject?: Record<string, string>;
 }
 
 interface PoolSlot {
@@ -46,6 +47,7 @@ export class SpawnPool {
       service,
       cwd,
       command: entry.commandTemplate,
+      envInject: entry.envInject,
       authData,
       readinessTimeoutMs: 60_000,
     });

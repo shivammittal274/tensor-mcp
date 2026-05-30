@@ -1,4 +1,6 @@
 import { describe, it, expect } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnService } from "../src/subprocess/spawner";
 import { join } from "node:path";
 
@@ -72,6 +74,28 @@ describe("spawnService", () => {
     await handle.kill();
     await expect(handle.kill()).resolves.toBeUndefined();
   }, 120_000);
+
+  it("substitutes {{PORT}} in envInject values", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "spawner-env-"));
+    const echoFile = join(tempDir, "env.out");
+
+    await expect(
+      spawnService({
+        service: "test-echo",
+        cwd: tempDir,
+        command: ["sh", "-c", `echo "$MY_PORT" > ${echoFile}; sleep 60`],
+        envInject: { MY_PORT: "{{PORT}}" },
+        authData: "",
+        readinessTimeoutMs: 2_000,
+      }),
+    ).rejects.toThrow();
+
+    const content = readFileSync(echoFile, "utf8").trim();
+    expect(content).toMatch(/^\d+$/);
+    expect(parseInt(content, 10)).toBeGreaterThan(1024);
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }, 10_000);
 
   it("throws if command is not found", async () => {
     await expect(
