@@ -2,7 +2,15 @@
   "name": "tensor-mcp",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ]
+  "workspaces": {
+    "packages": [
+      "packages/*"
+    ],
+    "catalog": {
+      "effect": "^3.19.15",
+      "tsdown": "^0.18.4",
+      "typescript": "^5.9.2",
+      "vitest": "^3.2.4"
+    }
+  }
 }
