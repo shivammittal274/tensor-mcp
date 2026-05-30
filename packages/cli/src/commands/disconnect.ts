@@ -1,36 +1,36 @@
-import { Vault, ConnectionsIndex } from "@tensor-mcp/runtime";
+import {
+  ConnectionsStore,
+  OAuthClientStore,
+  TokenStore,
+} from "@tensor-mcp/core";
+import { getService } from "@tensor-mcp/services";
 
-export interface RunDisconnectOptions {
-  vaultService?: string;
-  indexPath?: string;
-}
-
-const DEFAULT_VAULT_SERVICE = "com.tensormcp.cli";
-
-export async function runDisconnect(
-  args: string[],
-  opts: RunDisconnectOptions = {},
-): Promise<number> {
-  const service = args[0];
-  if (!service) {
+export async function disconnectCmd(service: string): Promise<number> {
+  const def = getService(service);
+  if (!def) {
     process.stderr.write(
-      "tensor-mcp disconnect: missing service argument\n\nUsage: tensor-mcp disconnect <service>\n",
+      `tensor-mcp disconnect: unknown service '${service}'\n`,
     );
     return 1;
   }
 
   const connectionId = `${service}:default`;
-  const vault = new Vault({ service: opts.vaultService ?? DEFAULT_VAULT_SERVICE });
-  const index = new ConnectionsIndex({ path: opts.indexPath });
+  const tokenStore = new TokenStore({});
+  const oauthClientStore = new OAuthClientStore({});
+  const connections = new ConnectionsStore({});
 
-  const existing = await index.get(connectionId);
+  const existing = await connections.get(connectionId);
   if (!existing) {
-    process.stderr.write(`tensor-mcp disconnect: '${service}' is not connected\n`);
+    process.stderr.write(
+      `tensor-mcp disconnect: '${service}' is not connected\n`,
+    );
     return 1;
   }
 
-  await vault.delete(connectionId);
-  await index.remove(connectionId);
-  process.stdout.write(`Disconnected '${service}' (${connectionId}).\n`);
+  await tokenStore.delete(connectionId);
+  await oauthClientStore.delete(connectionId);
+  await connections.delete(connectionId);
+
+  process.stdout.write(`Disconnected ${def.displayName}.\n`);
   return 0;
 }
