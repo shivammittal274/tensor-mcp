@@ -11,11 +11,21 @@ This directory is a fork of the Klavis MCP Slack server.
 
 - `requirements.txt`: bumped `mcp` to `>=1.23.0` (CVE-2025-66416, DNS rebinding)
 - `requirements.txt`: pinned `h11>=0.16.0` (HTTP request smuggling via malformed Chunked-Encoding)
-
-No other changes. The execution code, tools, and OAuth-passthrough pattern remain verbatim.
+- `server.py`: added a tensor-mcp shim near the top that reads `AUTH_DATA`
+  env (the standard Klavis env-var convention) and populates
+  `SLACK_BOT_TOKEN` + `SLACK_USER_TOKEN` from `{access_token, authed_user.access_token}`.
+  Slack's server already reads those two env vars natively when no x-auth-data
+  HTTP header is present; the shim lets tensor-mcp use a single uniform
+  AUTH_DATA contract across every vendored service.
 
 ## Why this lives here
 
-tensor-mcp spawns this Slack server as a subprocess and connects to it as an MCP client over HTTP. Tokens come from tensor-mcp's OS-keychain vault, forged into the `x-auth-data` header the server already expects.
+tensor-mcp spawns this Slack server as a subprocess and connects to it as
+an MCP client over HTTP. Tokens come from tensor-mcp's OS-keychain vault,
+forged into the `AUTH_DATA` env via the service's `forgeAuthData` callback:
 
-The Slack server reads a richer auth shape: `{access_token: <bot xoxb-...>, authed_user: {access_token: <user xoxp-...>}}`. tensor-mcp's `forgeAuthData("slack", blob)` currently uses the simplified Phase 1 shape (`{access_token}` only); Phase 2 may extend to the bot+user split when adding multi-account.
+```
+{ access_token: <bot xoxb-...>, authed_user: { access_token: <user xoxp-...> } }
+```
+
+The shim turns that into the two env vars Slack's server reads natively.

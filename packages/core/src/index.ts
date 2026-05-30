@@ -7,6 +7,9 @@ export type {
   AuthStrategy,
   ConnectOptions,
 } from "./auth/types";
+// Re-export the SDK's auth-server metadata type so service entries can declare
+// `staticOAuthAuth` configs without a direct dependency on the SDK.
+export type { AuthorizationServerMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 export * from "./catalog";
 export * from "./mcp";
 export * from "./search";

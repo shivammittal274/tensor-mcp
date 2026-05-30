@@ -18,7 +18,14 @@ export async function connectCmd(service: string): Promise<number> {
 
   process.stderr.write(`Connecting ${def.displayName}...\n`);
   const { instructions } = def.auth.describe();
-  if (instructions) process.stderr.write(`${instructions}\n\n`);
+  // Skip describe() when it's the "not configured" warning — `connect()`
+  // throws the same message below, and printing it twice is noisy.
+  const isNotConfigured = instructions
+    .toLowerCase()
+    .includes("not configured");
+  if (instructions && !isNotConfigured) {
+    process.stderr.write(`${instructions}\n\n`);
+  }
 
   try {
     const bundle = await def.auth.connect({

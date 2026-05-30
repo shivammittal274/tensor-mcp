@@ -48,6 +48,17 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+# tensor-mcp shim: bridge our standard AUTH_DATA env (Klavis convention) into
+# the SLACK_BOT_TOKEN / SLACK_USER_TOKEN env vars this server already reads.
+# Lets us spawn this server with one uniform auth contract across the catalog.
+if not os.getenv("SLACK_BOT_TOKEN") and os.getenv("AUTH_DATA"):
+    try:
+        _ad = json.loads(os.environ["AUTH_DATA"])
+        os.environ["SLACK_BOT_TOKEN"] = _ad.get("access_token", "")
+        os.environ["SLACK_USER_TOKEN"] = _ad.get("authed_user", {}).get("access_token", "")
+    except Exception:
+        pass
+
 SLACK_MCP_SERVER_PORT = int(os.getenv("SLACK_MCP_SERVER_PORT", "5000"))
 
 def extract_access_tokens(request_or_scope) -> tuple[str, str]:
