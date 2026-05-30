@@ -1,3 +1,7 @@
+// === Phase 2 (new) ===
+export { runMcpServer, type RunMcpServerConfig } from "./mcp-server";
+
+// === Phase 1 (legacy — to be deleted in Day 3 cleanup) ===
 export { Vault, type TokenBlob } from "./vault";
 export { ConnectionsIndex, type ConnectionRecord } from "./connections-index";
 export {
