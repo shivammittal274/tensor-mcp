@@ -6,6 +6,7 @@ import { disconnectCmd } from "./commands/disconnect";
 import { searchCmd } from "./commands/search";
 import { serveCmd } from "./commands/serve";
 import { showCmd } from "./commands/show";
+import { toolAddCmd } from "./commands/tool";
 
 const cli = cac("tensor-mcp");
 
@@ -45,6 +46,21 @@ cli
   .command("serve", "Start the MCP stdio server (for Claude Desktop)")
   .action(async () => {
     process.exit(await serveCmd());
+  });
+
+cli
+  .command(
+    "tool <action> <host>",
+    "Add tensor-mcp to a host MCP client (claude-desktop, claude-code, cursor, vscode, gemini)",
+  )
+  .action(async (action: string, host: string) => {
+    if (action !== "add") {
+      process.stderr.write(
+        `tensor-mcp tool: unknown action '${action}'. Supported: add\n`,
+      );
+      process.exit(1);
+    }
+    process.exit(await toolAddCmd(host));
   });
 
 cli.help();

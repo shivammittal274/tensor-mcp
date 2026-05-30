@@ -63,22 +63,20 @@ Then for each: `./dist/tensor-mcp search "<some query>"` and `./dist/tensor-mcp 
 
 Full registry: `./dist/tensor-mcp search "create"` shows all "create-something" tools across whatever you've connected.
 
-## 4. Hook into Claude Desktop (the MCP path)
+## 4. Hook into your MCP host
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+One command does the JSON/TOML edit for you:
 
-```json
-{
-  "mcpServers": {
-    "tensor-mcp": {
-      "command": "/absolute/path/to/dist/tensor-mcp",
-      "args": ["serve"]
-    }
-  }
-}
+```bash
+./dist/tensor-mcp tool add claude-desktop   # ~/Library/.../claude_desktop_config.json
+./dist/tensor-mcp tool add claude-code      # shells out to `claude mcp add`
+./dist/tensor-mcp tool add cursor           # ~/.cursor/mcp.json
+./dist/tensor-mcp tool add vscode           # shells out to `code --add-mcp`
+./dist/tensor-mcp tool add codex            # ~/.codex/config.toml
+./dist/tensor-mcp tool add gemini           # shells out to `gemini mcp add`
 ```
 
-Restart Claude Desktop completely (Quit, reopen).
+Idempotent — re-running won't duplicate, and existing entries in your config are preserved. Restart the host afterward.
 
 In a new chat, try:
 

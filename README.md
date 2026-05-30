@@ -27,36 +27,53 @@ tensor-mcp runs the same Klavis MCP servers (Apache 2.0) as local subprocesses, 
 ## Quick start
 
 ```bash
-# 1. Install
-curl -fsSL https://tensor-mcp.dev/install | sh   # (planned)
-# Or from source:
-git clone https://github.com/<TBD>/tensor-mcp && cd tensor-mcp && bun install
+# 1. Build from source (~1 min)
+git clone https://github.com/shivammittal274/tensor-mcp.git
+cd tensor-mcp
+bun install
+bash scripts/build.sh                  # produces dist/tensor-mcp (~56 MB)
 
-# 2. Connect a service (opens browser, token to keychain)
-tensor-mcp connect linear
+# 2. Wire into your MCP host (Claude Desktop, Claude Code, Cursor, VSCode, Gemini)
+./dist/tensor-mcp tool add claude-desktop   # auto-edits ~/Library/.../claude_desktop_config.json
 
-# 3. Add to Claude Desktop config
-cat >> ~/Library/Application\ Support/Claude/claude_desktop_config.json <<EOF
-{
-  "mcpServers": {
-    "tensor-mcp": { "command": "/abs/path/to/tensor-mcp", "args": ["serve"] }
-  }
-}
-EOF
+# 3. Restart the host and start chatting. Inside Claude/Cursor:
+#    "Connect Hacker News, then show me the top 3 stories."
+#    Claude calls list_services → connect_service → search_tools → call_tool.
+
+# 4. (Optional) Use the CLI directly
+./dist/tensor-mcp connect linear           # opens browser, OAuth → token to OS keychain
+./dist/tensor-mcp search "create issue"    # BM25+ stemmed search
+./dist/tensor-mcp call linear linear_create_issue '{"title":"Hello","teamId":"..."}'
 ```
 
-Restart Claude Desktop. Ask Claude to use Linear. It works.
+Tokens land in your OS keychain (Security.framework / libsecret) — they never leave the laptop.
 
 ## CLI reference
 
 ```
-tensor-mcp connect <service>     # OAuth → store in OS keychain → ingest tool catalog
-tensor-mcp disconnect <service>  # Remove credentials
+tensor-mcp connect <service>     # OAuth / PAT / API key → store in OS keychain → ingest tool catalog
+tensor-mcp disconnect <service>  # Remove credentials (catalog rows stay)
 tensor-mcp show                  # List connected services
-tensor-mcp search <query>        # BM25 search over the tool catalog
+tensor-mcp search <query>        # BM25+ stemmed search over the tool catalog
 tensor-mcp call <svc> <tool>     # Execute one tool directly (debug aid)
-tensor-mcp serve                 # MCP stdio server (Claude Desktop launches this)
+tensor-mcp serve                 # MCP stdio server (hosts launch this)
+tensor-mcp tool add <host>       # Wire tensor-mcp into a host MCP client
+                                 # hosts: claude-desktop, claude-code, cursor, vscode, gemini, codex
 ```
+
+## MCP meta-tools (what agents see)
+
+When `serve` runs, the MCP server exposes five tools to the agent:
+
+| Tool | What it does |
+|---|---|
+| `search_tools` | BM25+ stemmed search over the catalog. Returns top-K tools with full input_schema + connection status. |
+| `call_tool` | Execute one tool by `(service, tool, input)`. |
+| `list_services` | All 26 services + auth method + connection state + tool count. |
+| `connect_service` | One verb for every auth tier — OAuth opens the browser, PAT/API-key accepts a `token` arg, no-auth connects instantly. |
+| `disconnect_service` | Idempotent removal. |
+
+So the agent self-services connections from inside chat: *"Connect Slack"* → `connect_service slack` → friendly error or browser flow.
 
 ## Supported services
 
