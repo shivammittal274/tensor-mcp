@@ -1,0 +1,8 @@
+{
+  "name": "tensor-mcp",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ]
+}
