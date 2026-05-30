@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import schemaDdl from "./schema.sql" with { type: "text" };
 
 export interface CatalogTool {
   service: string;
@@ -52,8 +52,7 @@ export class Catalog {
     await mkdir(dirname(this.path), { recursive: true });
     const db = new Database(this.path);
     db.exec("PRAGMA journal_mode = WAL;");
-    const ddl = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
-    db.exec(ddl);
+    db.exec(schemaDdl);
     this.db = db;
   }
 
