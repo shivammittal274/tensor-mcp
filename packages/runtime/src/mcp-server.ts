@@ -6,12 +6,16 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   BM25Search,
-  Catalog,
-  ConnectionsStore,
   callTool,
+  Catalog,
+  connectService,
+  ConnectionsStore,
+  disconnectService,
+  listServices,
+  OAuthClientStore,
+  searchTools,
   type Service,
   SpawnPool,
-  searchTools,
   TokenStore,
 } from "@tensor-mcp/core";
 
@@ -59,7 +63,7 @@ const SEARCH_TOOLS_DEF = {
 const CALL_TOOL_DEF = {
   name: "call_tool",
   description:
-    "Execute a discovered tool. Use the `service` and `tool` exactly as returned by search_tools.",
+    "Execute a discovered tool. Use the `service` and `tool` exactly as returned by `search_tools`. If the result indicates the service is not connected, call `connect_service` first.",
   inputSchema: {
     type: "object" as const,
     required: ["service", "tool"],
@@ -71,16 +75,72 @@ const CALL_TOOL_DEF = {
       tool: {
         type: "string",
         description:
-          "Tool name as returned by search_tools (e.g. 'linear_create_issue')",
+          "Tool name as returned by `search_tools` (e.g. 'linear_create_issue')",
       },
       input: {
         type: "object",
         description:
-          "Arguments for the tool. Shape per the tool's input_schema.",
+          "Arguments for the tool. Shape per the tool's `input_schema`.",
       },
     },
   },
 };
+
+const LIST_SERVICES_DEF = {
+  name: "list_services",
+  description:
+    "List every registered third-party service with its connection status, auth method, and tool count. Use this when the user asks 'what can you do?' or before suggesting a `connect_service` call.",
+  inputSchema: { type: "object" as const, properties: {} },
+};
+
+const CONNECT_SERVICE_DEF = {
+  name: "connect_service",
+  description:
+    "Connect a service so its tools can be called. Behavior depends on the service's `auth_method`:\n" +
+    "• 'oauth-dcr' / 'oauth-static': opens the user's default browser to complete OAuth — IGNORE the `token` arg and wait up to 5 minutes.\n" +
+    "• 'pat' / 'api-key': pass the user-provided credential as `token`. If the user hasn't given one yet, call this without `token` to get back the URL where they generate it.\n" +
+    "• services with no auth: just connect, `token` ignored.\n" +
+    "After success, the search index refreshes — re-run `search_tools` to see the newly available tools.",
+  inputSchema: {
+    type: "object" as const,
+    required: ["service"],
+    properties: {
+      service: {
+        type: "string",
+        description: "Service slug (e.g. 'linear', 'github')",
+      },
+      token: {
+        type: "string",
+        description:
+          "Personal Access Token / API key string. Required only for `pat` and `api-key` auth methods.",
+      },
+    },
+  },
+};
+
+const DISCONNECT_SERVICE_DEF = {
+  name: "disconnect_service",
+  description:
+    "Remove a service's stored credential and connection metadata. Catalog rows stay so the tools are still discoverable via `search_tools` (marked 'missing' until reconnected).",
+  inputSchema: {
+    type: "object" as const,
+    required: ["service"],
+    properties: {
+      service: {
+        type: "string",
+        description: "Service slug (e.g. 'linear')",
+      },
+    },
+  },
+};
+
+const TOOLS = [
+  SEARCH_TOOLS_DEF,
+  CALL_TOOL_DEF,
+  LIST_SERVICES_DEF,
+  CONNECT_SERVICE_DEF,
+  DISCONNECT_SERVICE_DEF,
+];
 
 const log = (msg: string): void => {
   process.stderr.write(`tensor-mcp serve: ${msg}\n`);
@@ -91,7 +151,7 @@ const log = (msg: string): void => {
  *
  * Lifecycle order:
  *   1. Open catalog → build search index from catalog.listAll()
- *   2. Open token + connections stores
+ *   2. Open token + OAuth-client + connections stores
  *   3. Create spawn pool
  *   4. Register ListTools + CallTool handlers (delegate to core/mcp)
  *   5. Connect StdioServerTransport
@@ -106,19 +166,18 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
 
   log("opening stores...");
   const tokenStore = new TokenStore({ service: config.tokenStoreService });
+  const oauthClientStore = new OAuthClientStore({});
   const connections = new ConnectionsStore({ path: config.connectionsPath });
 
   log("building search index...");
-  const tools = await catalog.listAll();
-  const searchIndex = new BM25Search(
-    tools.map((t) => ({
-      service: t.service,
-      toolName: t.toolName,
-      description: t.description,
-    })),
-  );
-  const serviceCount = new Set(tools.map((t) => t.service)).size;
-  log(`indexed ${tools.length} tools across ${serviceCount} services`);
+  // Mutable so connect_service / disconnect_service can swap in a freshly
+  // rebuilt index after catalog changes — agents in the same MCP session
+  // see new tools without reconnecting Claude Desktop.
+  let searchIndex = await buildIndex(catalog);
+  const rebuildIndex = async () => {
+    searchIndex = await buildIndex(catalog);
+    log(`search index rebuilt`);
+  };
 
   log("creating spawn pool...");
   const pool = new SpawnPool();
@@ -130,7 +189,7 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [SEARCH_TOOLS_DEF, CALL_TOOL_DEF],
+    tools: TOOLS,
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -150,9 +209,7 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
               (await connections.get(`${service}:default`)) !== null,
           },
         );
-        return {
-          content: [{ type: "text", text: JSON.stringify(result) }],
-        };
+        return ok(result);
       }
       if (name === "call_tool") {
         const result = await callTool(
@@ -167,10 +224,43 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
             getSpawn: (s) => config.services[s]?.spawn,
           },
         );
-        return {
-          content: result.content,
-          isError: result.isError,
-        };
+        return { content: result.content, isError: result.isError };
+      }
+      if (name === "list_services") {
+        const result = await listServices({
+          listAllServices: () => Object.values(config.services),
+          isConnected: async (service) =>
+            (await connections.get(`${service}:default`)) !== null,
+          catalog,
+        });
+        return ok(result);
+      }
+      if (name === "connect_service") {
+        const result = await connectService(
+          (args ?? {}) as { service: string; token?: string },
+          {
+            getService: (id) => config.services[id],
+            tokenStore,
+            oauthClientStore,
+            connections,
+            catalog,
+            onCatalogChanged: rebuildIndex,
+            tensorMcpRoot: config.tensorMcpRoot,
+          },
+        );
+        return ok(result);
+      }
+      if (name === "disconnect_service") {
+        const result = await disconnectService(
+          (args ?? {}) as { service: string },
+          {
+            getService: (id) => config.services[id],
+            tokenStore,
+            oauthClientStore,
+            connections,
+          },
+        );
+        return ok(result);
       }
       throw new Error(`unknown meta-tool: ${name}`);
     } catch (err) {
@@ -235,4 +325,24 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
   log("transport closed; exiting");
   await pool.shutdown();
   catalog.close();
+}
+
+async function buildIndex(catalog: Catalog) {
+  const tools = await catalog.listAll();
+  const idx = new BM25Search(
+    tools.map((t) => ({
+      service: t.service,
+      toolName: t.toolName,
+      description: t.description,
+    })),
+  );
+  const serviceCount = new Set(tools.map((t) => t.service)).size;
+  log(`indexed ${tools.length} tools across ${serviceCount} services`);
+  return idx;
+}
+
+function ok(value: unknown) {
+  return {
+    content: [{ type: "text", text: JSON.stringify(value) }],
+  };
 }

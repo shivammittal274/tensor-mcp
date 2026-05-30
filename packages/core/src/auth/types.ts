@@ -6,7 +6,12 @@ import type { KeyValueStore, TokenBundle } from "../stores/types";
  * Each AuthStrategy is responsible for its own UX (open a browser,
  * prompt for input, etc.) and for persisting the result.
  */
-export type AuthMethod = "oauth-dcr" | "oauth-static" | "pat" | "api-key";
+export type AuthMethod =
+  | "oauth-dcr"
+  | "oauth-static"
+  | "pat"
+  | "api-key"
+  | "no-auth";
 
 export interface AuthStrategy {
   readonly method: AuthMethod;

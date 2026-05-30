@@ -1,4 +1,7 @@
-import stem from "wink-porter2-stemmer";
+// wink-porter2-stemmer ships no .d.ts and has no @types package upstream.
+// @ts-expect-error — declared as a typed re-export below.
+import stemRaw from "wink-porter2-stemmer";
+const stem = stemRaw as (token: string) => string;
 
 /**
  * Field-flattened BM25+ search over a tool catalog.

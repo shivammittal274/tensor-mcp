@@ -9,7 +9,7 @@ import type { AuthStrategy, ConnectOptions } from "./types";
  */
 export function noAuth(): AuthStrategy {
   return {
-    method: "api-key",
+    method: "no-auth",
     describe() {
       return { instructions: "No authentication required." };
     },
