@@ -1,0 +1,7 @@
+mcp>=1.23.0
+httpx
+click
+starlette
+uvicorn[standard]
+python-dotenv
+h11>=0.16.0
