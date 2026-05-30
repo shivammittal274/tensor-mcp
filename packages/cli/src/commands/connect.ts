@@ -5,9 +5,11 @@ import {
   Catalog,
   ConnectionsIndex,
   DEFAULT_SERVICE_REGISTRY,
+  connectViaDCR,
+  getService,
   ingestService,
+  listOAuthCapableServices,
   Vault,
-  connectLinear,
   type SpawnPoolEntry,
   type TokenBlob,
 } from "@tensor-mcp/runtime";
@@ -25,23 +27,47 @@ export interface RunConnectOptions {
 
 const DEFAULT_VAULT_SERVICE = "com.tensormcp.cli";
 
-const SUPPORTED_SERVICES: Record<
-  string,
-  {
-    displayName: string;
-    connect: () => Promise<{ blob: TokenBlob; client_id?: string }>;
-  }
-> = {
-  linear: {
-    displayName: "Linear",
-    connect: async () => {
-      const r = await connectLinear();
-      return { blob: r.blob, client_id: r.client_id };
-    },
-  },
-};
+function supportedList(): string {
+  return (
+    listOAuthCapableServices()
+      .map((s) => s.service)
+      .join(", ") || "none yet"
+  );
+}
 
-const supportedList = () => Object.keys(SUPPORTED_SERVICES).join(", ");
+function validateService(service: string): string | null {
+  const def = getService(service);
+  if (!def) {
+    return `'${service}' is not supported in this build (supported: ${supportedList()})`;
+  }
+  if (def.oauth.type === "none") {
+    return `'${service}' is vendored but OAuth is not yet wired (Phase 3 work)`;
+  }
+  return null;
+}
+
+async function callConnectImpl(
+  service: string,
+): Promise<{ blob: TokenBlob; client_id?: string }> {
+  const def = getService(service);
+  if (!def) throw new Error(`unknown service '${service}'`);
+  if (def.oauth.type === "none") {
+    throw new Error(
+      `'${service}' OAuth client not yet registered (Phase 3 work). Service is vendored but OAuth flow pending.`,
+    );
+  }
+  if (def.oauth.type === "static") {
+    throw new Error(
+      `'${service}' static OAuth not yet implemented (Phase 3 work).`,
+    );
+  }
+  const result = await connectViaDCR({
+    wellKnownUrl: def.oauth.wellKnownUrl,
+    scope: def.oauth.scope,
+    clientName: "tensor-mcp",
+  });
+  return result;
+}
 
 function findWorkspaceRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -103,8 +129,14 @@ export async function runConnect(
     return 1;
   }
 
-  const entry = SUPPORTED_SERVICES[service];
-  if (!entry) {
+  const validationError = validateService(service);
+  if (validationError) {
+    process.stderr.write(`tensor-mcp connect: ${validationError}\n`);
+    return 1;
+  }
+
+  const def = getService(service);
+  if (!def) {
     process.stderr.write(
       `tensor-mcp connect: '${service}' is not supported in this build (supported: ${supportedList()})\n`,
     );
@@ -115,7 +147,7 @@ export async function runConnect(
     `Starting OAuth for ${service}... A browser tab will open.\n`,
   );
 
-  const connectImpl = opts.connectImpl ?? ((_svc: string) => entry.connect());
+  const connectImpl = opts.connectImpl ?? callConnectImpl;
   let result: { blob: TokenBlob; client_id?: string };
   try {
     result = await connectImpl(service);
@@ -136,7 +168,7 @@ export async function runConnect(
   await index.upsert({
     service,
     connectionId,
-    displayName: entry.displayName,
+    displayName: def.displayName,
     connectedAt: Date.now(),
   });
 

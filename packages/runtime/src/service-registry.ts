@@ -1,35 +1,18 @@
+import { SERVICES } from "./services";
 import type { SpawnPoolEntry } from "./subprocess/spawn-pool";
 
-export const DEFAULT_SERVICE_REGISTRY: Record<string, SpawnPoolEntry> = {
-  linear: {
-    vendorDir: "vendored/linear",
-    commandTemplate: [
-      "uv",
-      "run",
-      "--with-requirements",
-      "requirements.txt",
-      "python",
-      "server.py",
-      "--port",
-      "{{PORT}}",
-    ],
-  },
-  slack: {
-    vendorDir: "vendored/slack",
-    commandTemplate: [
-      "uv",
-      "run",
-      "--with-requirements",
-      "requirements.txt",
-      "python",
-      "server.py",
-      "--port",
-      "{{PORT}}",
-    ],
-  },
-  gmail: {
-    vendorDir: "vendored/gmail",
-    commandTemplate: ["bun", "run", "src/index.ts"],
-    envInject: { PORT: "{{PORT}}" },
-  },
-};
+/**
+ * Legacy compatibility: derive the spawn-pool registry from per-service configs.
+ * New code should use `SERVICES` from `./services` directly.
+ */
+export const DEFAULT_SERVICE_REGISTRY: Record<string, SpawnPoolEntry> =
+  Object.fromEntries(
+    Object.entries(SERVICES).map(([slug, svc]) => [
+      slug,
+      {
+        vendorDir: svc.vendor.dir,
+        commandTemplate: svc.vendor.command,
+        envInject: svc.vendor.envInject,
+      },
+    ]),
+  );

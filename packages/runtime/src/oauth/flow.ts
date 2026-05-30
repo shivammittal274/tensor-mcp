@@ -20,6 +20,14 @@ export interface ConnectLinearResult {
   client_id: string;
 }
 
+export interface DCRConnectConfig {
+  wellKnownUrl: string;
+  scope: string;
+  clientName?: string;
+  timeoutMs?: number;
+  openBrowser?: (url: string) => Promise<void>;
+}
+
 interface WellKnownConfig {
   issuer: string;
   authorization_endpoint: string;
@@ -50,13 +58,13 @@ function randomState(): string {
   return Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
 }
 
-export async function connectLinear(
-  config: LinearOAuthConfig = {},
+export async function connectViaDCR(
+  config: DCRConnectConfig,
 ): Promise<ConnectLinearResult> {
-  const wellKnownUrl = config.wellKnownUrl ?? DEFAULT_WELL_KNOWN;
-  const scope = config.scope ?? DEFAULT_SCOPE;
+  const { wellKnownUrl, scope } = config;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const openBrowser = config.openBrowser ?? defaultOpenBrowser;
+  const clientName = config.clientName ?? "tensor-mcp";
 
   const wkRes = await fetch(wellKnownUrl);
   if (!wkRes.ok) {
@@ -74,7 +82,7 @@ export async function connectLinear(
 
   try {
     const reg = await registerClient(wk.registration_endpoint, {
-      client_name: config.registrationMetadataExtras?.client_name ?? "tensor-mcp",
+      client_name: clientName,
       redirect_uris: [callback.redirectUri],
       token_endpoint_auth_method: "none",
       scope,
@@ -133,4 +141,16 @@ export async function connectLinear(
   } finally {
     callback.close();
   }
+}
+
+export async function connectLinear(
+  config: LinearOAuthConfig = {},
+): Promise<ConnectLinearResult> {
+  return connectViaDCR({
+    wellKnownUrl: config.wellKnownUrl ?? DEFAULT_WELL_KNOWN,
+    scope: config.scope ?? DEFAULT_SCOPE,
+    timeoutMs: config.timeoutMs,
+    openBrowser: config.openBrowser,
+    clientName: config.registrationMetadataExtras?.client_name,
+  });
 }
