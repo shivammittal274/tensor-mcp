@@ -1,0 +1,28 @@
+{
+  "name": "@tensor-mcp/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./auth": "./src/auth/index.ts",
+    "./stores": "./src/stores/index.ts",
+    "./subprocess": "./src/subprocess/index.ts",
+    "./catalog": "./src/catalog/index.ts",
+    "./search": "./src/search/index.ts",
+    "./mcp": "./src/mcp/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tensor-mcp/keyring": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "okapibm25": "^1.4.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
