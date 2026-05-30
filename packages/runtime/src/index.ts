@@ -9,3 +9,12 @@ export {
   type McpToolDef,
   type McpToolResult,
 } from "./subprocess/mcp_client";
+export { SpawnPool, type SpawnPoolEntry } from "./subprocess/spawn-pool";
+export {
+  runMcpServer,
+  handleSearch,
+  handleCall,
+  type RunMcpServerConfig,
+  type ToolHit,
+  type SearchToolsResult,
+} from "./server";
