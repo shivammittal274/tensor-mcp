@@ -17,6 +17,18 @@
         "@types/bun": "latest",
       },
     },
+    "packages/core": {
+      "name": "@tensor-mcp/core",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@tensor-mcp/keyring": "workspace:*",
+        "okapibm25": "^1.4.1",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/keyring": {
       "name": "@tensor-mcp/keyring",
       "version": "0.1.0",
@@ -227,6 +239,8 @@
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@tensor-mcp/cli": ["@tensor-mcp/cli@workspace:packages/cli"],
+
+    "@tensor-mcp/core": ["@tensor-mcp/core@workspace:packages/core"],
 
     "@tensor-mcp/keyring": ["@tensor-mcp/keyring@workspace:packages/keyring"],
 
