@@ -1,4 +1,28 @@
-import BM25 from "okapibm25";
+import okapibm25Default from "okapibm25";
+
+type BM25Fn = (
+  documents: string[],
+  queryTerms: string[],
+  opts: { k1: number; b: number },
+) => number[];
+
+// `bun run` resolves CJS default to the BM25 function; `bun build --compile`
+// double-wraps it (the default is the module object containing a .default).
+// Walk down at most twice to find the actual function.
+function resolveBM25(mod: unknown): BM25Fn {
+  let m: unknown = mod;
+  for (let i = 0; i < 3; i++) {
+    if (typeof m === "function") return m as BM25Fn;
+    if (m && typeof m === "object" && "default" in m) {
+      m = (m as { default: unknown }).default;
+    } else {
+      break;
+    }
+  }
+  throw new Error("okapibm25: could not resolve BM25 function from module export");
+}
+
+const BM25: BM25Fn = resolveBM25(okapibm25Default);
 
 export interface ToolIndexable {
   service: string;
