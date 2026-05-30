@@ -105,7 +105,7 @@ describe("callTool", () => {
     };
     const deps: CallToolDeps = {
       tokenStore: new FakeTokenStore({
-        linear: { access_token: "tok-abc" },
+        "linear:default": { access_token: "tok-abc" },
       }),
       spawnPool: fakeSpawnPool(fakeHandle("linear")),
       getSpawn: () => fakeSpawnConfig(),
@@ -134,7 +134,7 @@ describe("callTool", () => {
     };
     const deps: CallToolDeps = {
       tokenStore: new FakeTokenStore({
-        slack: { access_token: "xoxb-1" },
+        "slack:default": { access_token: "xoxb-1" },
       }),
       spawnPool: fakeSpawnPool(fakeHandle("slack")),
       getSpawn: () => fakeSpawnConfig(),
@@ -156,7 +156,7 @@ describe("callTool", () => {
     };
     const deps: CallToolDeps = {
       tokenStore: new FakeTokenStore({
-        jira: { access_token: "pat-xyz" },
+        "jira:default": { access_token: "pat-xyz" },
       }),
       spawnPool: fakeSpawnPool(fakeHandle("jira")),
       getSpawn: () => fakeSpawnConfig(),

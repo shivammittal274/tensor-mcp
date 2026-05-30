@@ -46,7 +46,9 @@ export async function callTool(
     throw new Error(`unknown service '${req.service}'`);
   }
 
-  const token = await deps.tokenStore.get(req.service);
+  // Tokens are persisted under "<service>:<conn-id>" — `connect` always
+  // writes the `:default` connection. Multi-account would parameterize here.
+  const token = await deps.tokenStore.get(`${req.service}:default`);
   if (!token) {
     throw new Error(`'${req.service}' is not connected`);
   }
