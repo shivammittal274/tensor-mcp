@@ -1,9 +1,9 @@
 import type { AuthStrategy } from "./auth/types";
-import type { Executor } from "./subprocess/types";
+import type { SpawnConfig } from "./subprocess/types";
 
 /**
- * A connectable third-party service. Adding a new service = drop a folder
- * under `services/<slug>/` with a `service.ts` that default-exports this.
+ * A connectable third-party service. Every service is fully declared by a
+ * single entry in `packages/services/index.ts` — auth strategy + spawn config.
  */
 export interface Service {
   /** URL-safe slug used as the connection key (e.g. "linear", "github"). */
@@ -12,22 +12,21 @@ export interface Service {
   /** Human-readable name shown in CLI/UI (e.g. "Linear", "GitHub"). */
   displayName: string;
 
-  /** How to authenticate. Composable strategy: OAuth DCR / PAT / API key. */
+  /** How to authenticate. Composable strategy: OAuth DCR / static / PAT / API key. */
   auth: AuthStrategy;
 
-  /** How to spawn a subprocess for tool execution. */
-  executor: Executor;
-
   /**
-   * Optional: services may opt out of subprocess execution if they use a
-   * different model (e.g. remote MCP direct). Phase 2 doesn't need this.
+   * How to run this service's subprocess. Plain data — `vendorDir + command
+   * + envInject + forgeAuthData`. Use convention helpers like `klavisPython`
+   * for the common cases, or write the config inline for quirks (e.g. a
+   * pre-compiled Go binary with a custom command).
    */
-  // executionMode?: "subprocess" | "remote";
+  spawn: SpawnConfig;
 }
 
 /**
- * Helper for service files. Pure identity function — provides type inference
- * and a single import surface for the discoverable services list.
+ * Identity helper for service files — provides type inference and a single
+ * import surface in `packages/services/index.ts`.
  */
 export function defineService(s: Service): Service {
   return s;

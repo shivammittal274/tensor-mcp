@@ -1,7 +1,7 @@
+import type { KeyValueStore, TokenBundle } from "../stores/types";
 import { connectMcpClient } from "../subprocess/mcp-client";
 import type { SpawnPool } from "../subprocess/pool";
-import type { Executor, SpawnedProcess } from "../subprocess/types";
-import type { KeyValueStore, TokenBundle } from "../stores/types";
+import type { SpawnConfig, SpawnedProcess } from "../subprocess/types";
 
 export interface CallToolRequest {
   service: string;
@@ -17,7 +17,7 @@ export interface CallToolResult {
 export interface CallToolDeps {
   tokenStore: Pick<KeyValueStore<TokenBundle>, "get">;
   spawnPool: Pick<SpawnPool, "ensure">;
-  getExecutor: (service: string) => Executor | undefined;
+  getSpawn: (service: string) => SpawnConfig | undefined;
   /** Override for tests. Defaults to the real Streamable HTTP MCP client. */
   connectClient?: typeof connectMcpClient;
 }
@@ -25,7 +25,7 @@ export interface CallToolDeps {
 /**
  * Execute a discovered tool inside a pooled, spawned MCP subprocess.
  *
- * Lookups are abstracted behind callbacks: `getExecutor` decouples this from
+ * Lookups are abstracted behind callbacks: `getSpawn` decouples this from
  * any specific service-registry, `tokenStore` from any specific keychain
  * impl, and `connectClient` is overridable so tests don't need a live
  * Streamable HTTP transport.
@@ -41,8 +41,8 @@ export async function callTool(
     throw new Error("call_tool requires `service` and `tool` arguments");
   }
 
-  const executor = deps.getExecutor(req.service);
-  if (!executor) {
+  const spawn = deps.getSpawn(req.service);
+  if (!spawn) {
     throw new Error(`unknown service '${req.service}'`);
   }
 
@@ -53,7 +53,7 @@ export async function callTool(
 
   const handle: SpawnedProcess = await deps.spawnPool.ensure(
     req.service,
-    executor,
+    spawn,
     token,
   );
 

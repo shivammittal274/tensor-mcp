@@ -1,11 +1,12 @@
-import { connectMcpClient } from "../subprocess/mcp-client";
-import type { Executor } from "../subprocess/types";
 import type { TokenBundle } from "../stores/types";
-import { type CatalogTool, Catalog } from "./catalog";
+import { connectMcpClient } from "../subprocess/mcp-client";
+import { spawnService } from "../subprocess/spawn-service";
+import type { SpawnConfig } from "../subprocess/types";
+import type { Catalog, CatalogTool } from "./catalog";
 
 export interface IngestServiceConfig {
   service: string;
-  executor: Executor;
+  spawn: SpawnConfig;
   token?: TokenBundle;
   readinessTimeoutMs?: number;
   tensorMcpRoot?: string;
@@ -30,7 +31,7 @@ export async function ingestService(
     access_token: "ingest_only_dummy",
   };
 
-  const handle = await config.executor.spawn({
+  const handle = await spawnService(config.service, config.spawn, {
     token,
     readinessTimeoutMs: config.readinessTimeoutMs,
     tensorMcpRoot: config.tensorMcpRoot,

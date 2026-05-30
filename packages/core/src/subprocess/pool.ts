@@ -1,8 +1,18 @@
 import type { TokenBundle } from "../stores/types";
-import type { Executor, SpawnedProcess } from "./types";
+import { spawnService } from "./spawn-service";
+import type { SpawnConfig, SpawnedProcess } from "./types";
 
 interface PoolSlot {
   promise: Promise<SpawnedProcess>;
+}
+
+export interface SpawnPoolOptions {
+  /**
+   * Injectable spawn function. Defaults to the real `spawnService`. Tests
+   * pass a fake to avoid touching the module graph (which leaks across
+   * test files with `mock.module`).
+   */
+  spawnImpl?: typeof spawnService;
 }
 
 /**
@@ -14,24 +24,24 @@ interface PoolSlot {
  */
 export class SpawnPool {
   private readonly slots: Map<string, PoolSlot> = new Map();
+  private readonly spawnImpl: typeof spawnService;
+
+  constructor(opts: SpawnPoolOptions = {}) {
+    this.spawnImpl = opts.spawnImpl ?? spawnService;
+  }
 
   ensure(
     service: string,
-    executor: Executor,
+    spawn: SpawnConfig,
     token: TokenBundle,
   ): Promise<SpawnedProcess> {
     const existing = this.slots.get(service);
     if (existing) return existing.promise;
 
-    const promise = executor
-      .spawn({ token, readinessTimeoutMs: 60_000 })
-      .then((handle) => {
-        // Normalize service name in case executor returned a generic slug
-        if (handle.service !== service) {
-          return { ...handle, service };
-        }
-        return handle;
-      });
+    const promise = this.spawnImpl(service, spawn, {
+      token,
+      readinessTimeoutMs: 60_000,
+    });
 
     const slot: PoolSlot = { promise };
     this.slots.set(service, slot);

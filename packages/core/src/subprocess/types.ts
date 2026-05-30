@@ -19,23 +19,39 @@ export interface SpawnedProcess {
 }
 
 /**
- * Each service defines how to spawn its own subprocess. Encapsulates the
- * service-specific command, env-var contract, and AUTH_DATA forging.
+ * Plain data describing how to run a service's subprocess. Each Service
+ * carries one of these directly — there's no Executor factory in between.
  *
- * Implementations:
- *   - klavisExecutor({lang:"python"|"typescript"|"go"}) — convention-based
- *   - customExecutor(opts) — for services with quirks
+ * Conventions are tiny helpers (see `klavis.ts` for `klavisPython` /
+ * `klavisTypescript`) that return a SpawnConfig. Services with quirks
+ * (e.g. a pre-compiled Go binary) declare the SpawnConfig literally.
  */
-export interface Executor {
+export interface SpawnConfig {
   /**
-   * Spawn a fresh subprocess and wait until its TCP port is bound.
-   * Caller owns the returned handle's lifecycle.
+   * Path to the vendored service. Resolved relative to the tensor-mcp
+   * workspace root unless absolute.
    */
-  spawn(opts: SpawnOptions): Promise<SpawnedProcess>;
+  vendorDir: string;
+  /**
+   * Command line. Use `"{{PORT}}"` as a placeholder anywhere the bound
+   * port should be substituted.
+   */
+  command: string[];
+  /**
+   * Extra environment variables. Values may also contain `"{{PORT}}"`.
+   * `AUTH_DATA` is set automatically from `forgeAuthData`; don't put it here.
+   */
+  envInject?: Record<string, string>;
+  /**
+   * Shape the JSON passed to the subprocess in `AUTH_DATA` (base64-encoded).
+   * Default: `{ access_token: bundle.access_token }`. Override for services
+   * with a richer auth contract (e.g. Slack's nested `authed_user`).
+   */
+  forgeAuthData?: (bundle: TokenBundle) => Record<string, unknown>;
 }
 
 export interface SpawnOptions {
-  /** Token bundle to inject. Executor forges into AUTH_DATA per service convention. */
+  /** Token bundle to inject. Forged into AUTH_DATA via `SpawnConfig.forgeAuthData`. */
   token: TokenBundle;
   /** Optional: pin a port. Otherwise an ephemeral port is chosen. */
   port?: number;

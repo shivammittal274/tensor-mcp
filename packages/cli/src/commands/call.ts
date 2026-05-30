@@ -1,4 +1,4 @@
-import { SpawnPool, TokenStore, callTool } from "@tensor-mcp/core";
+import { callTool, SpawnPool, TokenStore } from "@tensor-mcp/core";
 import { getService } from "@tensor-mcp/services";
 
 export async function callCmd(
@@ -33,7 +33,7 @@ export async function callCmd(
       {
         tokenStore,
         spawnPool: pool,
-        getExecutor: (s) => (s === service ? def.executor : undefined),
+        getSpawn: (s) => (s === service ? def.spawn : undefined),
       },
     );
 

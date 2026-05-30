@@ -1,5 +1,12 @@
-export type { Executor, SpawnOptions, SpawnedProcess } from "./types";
-export { spawnSubprocess } from "./spawn";
+export { klavisPython, klavisTypescript } from "./klavis";
+export {
+  connectMcpClient,
+  type McpClientHandle,
+  type McpToolDef,
+  type McpToolResult,
+  UnauthorizedToolCallError,
+} from "./mcp-client";
 export { SpawnPool } from "./pool";
-export { connectMcpClient, UnauthorizedToolCallError, type McpClientHandle, type McpToolDef, type McpToolResult } from "./mcp-client";
-export { klavisExecutor, type KlavisExecutorConfig, type KlavisLang } from "./klavis-executor";
+export { spawnSubprocess } from "./spawn";
+export { findWorkspaceRoot, spawnService } from "./spawn-service";
+export type { SpawnConfig, SpawnedProcess, SpawnOptions } from "./types";

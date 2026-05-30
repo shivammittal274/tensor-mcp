@@ -29,9 +29,9 @@ export interface KeyValueStore<T> {
  * absolute deadline (unix ms; we compute from `expires_in`). For PAT/API key,
  * only `access_token` is populated.
  *
- * `metadata` holds service-specific extras that the executor may need:
+ * `metadata` holds service-specific extras that `forgeAuthData` may need:
  *   - Jira: { selected_cloud_id: "..." }
- *   - Slack (future): { user_access_token: "xoxp-..." }
+ *   - Slack: { slack_user_token: "xoxp-..." }
  */
 export interface TokenBundle {
   access_token: string;

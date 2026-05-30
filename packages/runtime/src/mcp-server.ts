@@ -7,11 +7,11 @@ import {
 import {
   BM25Search,
   Catalog,
-  callTool,
   ConnectionsStore,
-  searchTools,
+  callTool,
   type Service,
   SpawnPool,
+  searchTools,
   TokenStore,
 } from "@tensor-mcp/core";
 
@@ -24,7 +24,7 @@ export interface RunMcpServerConfig {
   connectionsPath?: string;
   /** Optional: override token-store service name. */
   tokenStoreService?: string;
-  /** Optional: override workspace root for klavisExecutor. */
+  /** Optional: override workspace root used to resolve `vendorDir`. */
   tensorMcpRoot?: string;
 }
 
@@ -164,7 +164,7 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
           {
             tokenStore,
             spawnPool: pool,
-            getExecutor: (s) => config.services[s]?.executor,
+            getSpawn: (s) => config.services[s]?.spawn,
           },
         );
         return {

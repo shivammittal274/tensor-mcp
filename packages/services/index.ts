@@ -7,27 +7,28 @@
  *   3. Run `tensor-mcp connect <id>` to OAuth + auto-ingest tools
  *
  * Auth strategies (from `@tensor-mcp/core`):
- *   - `mcpDcrAuth({mcpServerUrl, scope?})` — RFC 7591 Dynamic Client Registration
- *     against a vendor-hosted MCP server. Browser-based OAuth, no app
- *     registration needed. Works for: Linear, Notion, Atlassian, Asana,
- *     Cloudflare, Sentry, Cal.com.
+ *   - `mcpDcrAuth({mcpServerUrl, scope?})` — RFC 7591 Dynamic Client
+ *     Registration. Browser-based OAuth, no app registration needed.
+ *     Works for: Linear, Notion, Atlassian, Asana, Cloudflare, Sentry, Cal.com.
  *   - `patAuth({tokenUrl, description})` — user pastes a Personal Access
  *     Token. Use for vendors without DCR (GitHub).
  *   - `apiKeyAuth({signupUrl, description})` — same UX as PAT, framed as
- *     "API key" for vendors that issue long-lived keys (Cal.com via direct API).
+ *     "API key" for vendors that issue long-lived keys.
  *
- * Executors:
- *   - `klavisExecutor({vendorDir, lang})` — convention-based subprocess spawn.
- *     `lang: "python"` runs `uv run python server.py --port {{PORT}}`.
- *     `lang: "typescript"` runs `bun run index.ts` with PORT env.
+ * Spawn descriptors (from `@tensor-mcp/core`):
+ *   - `klavisPython("vendored/<id>")` — `uv run python server.py --port {{PORT}}`
+ *   - `klavisTypescript("vendored/<id>")` — `bun run index.ts` with PORT env
+ *   - Or write the SpawnConfig literally for services that don't fit either
+ *     convention (e.g. a pre-compiled Go binary with `command: ["./bin/server"]`).
  */
 
 import {
   type AuthStrategy,
-  type Service,
   defineService,
-  klavisExecutor,
+  klavisPython,
+  klavisTypescript,
   mcpDcrAuth,
+  type Service,
 } from "@tensor-mcp/core";
 
 /** Placeholder for services whose OAuth client registration is pending. */
@@ -49,14 +50,14 @@ export const SERVICES: Record<string, Service> = {
       mcpServerUrl: "https://mcp.linear.app",
       scope: "read write",
     }),
-    executor: klavisExecutor({ vendorDir: "vendored/linear", lang: "python" }),
+    spawn: klavisPython("vendored/linear"),
   }),
 
   notion: defineService({
     id: "notion",
     displayName: "Notion",
     auth: mcpDcrAuth({ mcpServerUrl: "https://mcp.notion.com" }),
-    executor: klavisExecutor({ vendorDir: "vendored/notion", lang: "python" }),
+    spawn: klavisPython("vendored/notion"),
   }),
 
   jira: defineService({
@@ -66,27 +67,21 @@ export const SERVICES: Record<string, Service> = {
       mcpServerUrl: "https://mcp.atlassian.com",
       scope: "read:jira-work write:jira-work read:jira-user",
     }),
-    executor: klavisExecutor({
-      vendorDir: "vendored/jira",
-      lang: "typescript",
-    }),
+    spawn: klavisTypescript("vendored/jira"),
   }),
 
   slack: defineService({
     id: "slack",
     displayName: "Slack",
     auth: oauthPending("Slack OAuth App registration"),
-    executor: klavisExecutor({ vendorDir: "vendored/slack", lang: "python" }),
+    spawn: klavisPython("vendored/slack"),
   }),
 
   gmail: defineService({
     id: "gmail",
     displayName: "Gmail",
     auth: oauthPending("Google Cloud project + OAuth verification"),
-    executor: klavisExecutor({
-      vendorDir: "vendored/gmail",
-      lang: "typescript",
-    }),
+    spawn: klavisTypescript("vendored/gmail"),
   }),
 };
 

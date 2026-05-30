@@ -8,9 +8,7 @@ import { getService } from "@tensor-mcp/services";
 export async function connectCmd(service: string): Promise<number> {
   const def = getService(service);
   if (!def) {
-    process.stderr.write(
-      `tensor-mcp connect: unknown service '${service}'\n`,
-    );
+    process.stderr.write(`tensor-mcp connect: unknown service '${service}'\n`);
     return 1;
   }
 
@@ -48,7 +46,7 @@ export async function connectCmd(service: string): Promise<number> {
       try {
         const n = await ingestService(catalog, {
           service,
-          executor: def.executor,
+          spawn: def.spawn,
           token: bundle,
         });
         process.stdout.write(`Indexed ${n} ${service} tools.\n`);

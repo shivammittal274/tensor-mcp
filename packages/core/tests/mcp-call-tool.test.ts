@@ -1,15 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { callTool, type CallToolDeps } from "../src/mcp/call-tool";
+import { type CallToolDeps, callTool } from "../src/mcp/call-tool";
+import type { KeyValueStore, TokenBundle } from "../src/stores/types";
 import type {
   McpClientHandle,
   McpToolResult,
 } from "../src/subprocess/mcp-client";
-import type {
-  Executor,
-  SpawnOptions,
-  SpawnedProcess,
-} from "../src/subprocess/types";
-import type { KeyValueStore, TokenBundle } from "../src/stores/types";
+import type { SpawnConfig, SpawnedProcess } from "../src/subprocess/types";
 
 class FakeTokenStore implements Pick<KeyValueStore<TokenBundle>, "get"> {
   private readonly map = new Map<string, TokenBundle>();
@@ -22,26 +18,22 @@ class FakeTokenStore implements Pick<KeyValueStore<TokenBundle>, "get"> {
   }
 }
 
-function fakeExecutor(): Executor {
+function fakeSpawnConfig(): SpawnConfig {
   return {
-    spawn: async (_opts: SpawnOptions): Promise<SpawnedProcess> => ({
-      service: "fake",
-      port: 1,
-      pid: 1,
-      mcpUrl: "http://127.0.0.1:1/mcp",
-      exited: new Promise<number>(() => {}),
-      kill: async () => {},
-    }),
+    vendorDir: "/tmp/fake",
+    command: ["echo", "noop"],
   };
 }
 
-function fakeSpawnPool(handle: SpawnedProcess): Pick<
-  CallToolDeps["spawnPool"],
-  "ensure"
-> {
+function fakeSpawnPool(
+  handle: SpawnedProcess,
+): Pick<CallToolDeps["spawnPool"], "ensure"> {
   return {
-    ensure: async (_service: string, _executor: Executor, _token: TokenBundle) =>
-      handle,
+    ensure: async (
+      _service: string,
+      _spawn: SpawnConfig,
+      _token: TokenBundle,
+    ) => handle,
   };
 }
 
@@ -85,7 +77,7 @@ describe("callTool", () => {
     const deps: CallToolDeps = {
       tokenStore: new FakeTokenStore(),
       spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getExecutor: () => undefined,
+      getSpawn: () => undefined,
       connectClient: fakeConnect({ content: [] }, log),
     };
     await expect(
@@ -98,7 +90,7 @@ describe("callTool", () => {
     const deps: CallToolDeps = {
       tokenStore: new FakeTokenStore(),
       spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getExecutor: () => fakeExecutor(),
+      getSpawn: () => fakeSpawnConfig(),
       connectClient: fakeConnect({ content: [] }, log),
     };
     await expect(
@@ -116,7 +108,7 @@ describe("callTool", () => {
         linear: { access_token: "tok-abc" },
       }),
       spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getExecutor: () => fakeExecutor(),
+      getSpawn: () => fakeSpawnConfig(),
       connectClient: fakeConnect(expected, log),
     };
     const result = await callTool(
@@ -145,7 +137,7 @@ describe("callTool", () => {
         slack: { access_token: "xoxb-1" },
       }),
       spawnPool: fakeSpawnPool(fakeHandle("slack")),
-      getExecutor: () => fakeExecutor(),
+      getSpawn: () => fakeSpawnConfig(),
       connectClient: fakeConnect(expected, log),
     };
     const result = await callTool(
@@ -167,7 +159,7 @@ describe("callTool", () => {
         jira: { access_token: "pat-xyz" },
       }),
       spawnPool: fakeSpawnPool(fakeHandle("jira")),
-      getExecutor: () => fakeExecutor(),
+      getSpawn: () => fakeSpawnConfig(),
       connectClient: fakeConnect(failing, log),
     };
     await expect(
@@ -181,7 +173,7 @@ describe("callTool", () => {
     const deps: CallToolDeps = {
       tokenStore: new FakeTokenStore(),
       spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getExecutor: () => fakeExecutor(),
+      getSpawn: () => fakeSpawnConfig(),
       connectClient: fakeConnect({ content: [] }, log),
     };
     await expect(
@@ -192,7 +184,9 @@ describe("callTool", () => {
     ).rejects.toThrow(/requires `service` and `tool`/);
     await expect(
       callTool(
-        { service: "linear", tool: "" } as unknown as Parameters<typeof callTool>[0],
+        { service: "linear", tool: "" } as unknown as Parameters<
+          typeof callTool
+        >[0],
         deps,
       ),
     ).rejects.toThrow(/requires `service` and `tool`/);

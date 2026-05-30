@@ -1,15 +1,23 @@
 // Service abstraction
+
+export * from "./auth";
+export type {
+  AuthIO,
+  AuthMethod,
+  AuthStrategy,
+  ConnectOptions,
+} from "./auth/types";
+export * from "./catalog";
+export * from "./mcp";
+export * from "./search";
 export { defineService, type Service } from "./service";
-
-// Type contracts
-export type { KeyValueStore, TokenBundle } from "./stores/types";
-export type { AuthStrategy, AuthMethod, ConnectOptions, AuthIO } from "./auth/types";
-export type { Executor, SpawnOptions, SpawnedProcess } from "./subprocess/types";
-
 // Re-exported sub-modules for convenience
 export * from "./stores";
-export * from "./auth";
+// Type contracts
+export type { KeyValueStore, TokenBundle } from "./stores/types";
 export * from "./subprocess";
-export * from "./catalog";
-export * from "./search";
-export * from "./mcp";
+export type {
+  SpawnConfig,
+  SpawnedProcess,
+  SpawnOptions,
+} from "./subprocess/types";
