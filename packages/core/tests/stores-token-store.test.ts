@@ -81,7 +81,7 @@ describe("TokenStore", () => {
   it("throws when stored value is valid JSON but wrong shape", async () => {
     const entry = new Entry(TEST_SERVICE, "corrupt-conn");
     await entry.setPassword(JSON.stringify({ foo: "bar" }));
-    await expect(store.get("corrupt-conn")).rejects.toThrow(/invalid token shape/);
+    await expect(store.get("corrupt-conn")).rejects.toThrow(/invalid (token|value) shape/);
   });
 
   it("list returns an empty array (no enumeration primitive yet)", async () => {

@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { KeyValueStore, TokenBundle } from "../src/stores/types";
-import { apiKeyAuth } from "../src/auth/api-key";
-import { patAuth } from "../src/auth/pat";
+import { apiKeyAuth, patAuth } from "../src/auth/paste-token";
 
 class InlineMemoryStore<T> implements KeyValueStore<T> {
   #data = new Map<string, T>();
@@ -62,7 +61,7 @@ describe("patAuth", () => {
   test("empty token throws", async () => {
     const s = patAuth({ tokenUrl: "https://x", description: "y" });
     const { opts } = makeConnectOpts("   ");
-    await expect(s.connect(opts)).rejects.toThrow(/Empty token/);
+    await expect(s.connect(opts)).rejects.toThrow(/Empty (token|Personal Access Token)/);
   });
 
   test("uses injected promptUser (no default prompt() invoked)", async () => {

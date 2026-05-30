@@ -2,7 +2,26 @@ import { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import schemaDdl from "./schema.sql" with { type: "text" };
+
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS tools (
+    service TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    input_schema_json TEXT NOT NULL DEFAULT '{}',
+    version_hash TEXT NOT NULL,
+    indexed_at INTEGER NOT NULL,
+    PRIMARY KEY (service, tool_name)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tools_service ON tools(service);
+  CREATE INDEX IF NOT EXISTS idx_tools_indexed_at ON tools(indexed_at);
+
+  CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`;
 
 export interface CatalogTool {
   service: string;
@@ -52,7 +71,7 @@ export class Catalog {
     await mkdir(dirname(this.path), { recursive: true });
     const db = new Database(this.path);
     db.exec("PRAGMA journal_mode = WAL;");
-    db.exec(schemaDdl);
+    db.exec(SCHEMA);
     this.db = db;
   }
 

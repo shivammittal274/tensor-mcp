@@ -53,7 +53,7 @@ describe("OAuthClientStore", () => {
     const entry = new Entry(TEST_SERVICE, "corrupt-issuer");
     await entry.setPassword(JSON.stringify({ redirect_uris: [] }));
     await expect(store.get("corrupt-issuer")).rejects.toThrow(
-      /invalid client shape/,
+      /invalid (client|value) shape/,
     );
   });
 });
