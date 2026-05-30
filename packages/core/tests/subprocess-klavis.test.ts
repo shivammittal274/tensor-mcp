@@ -71,14 +71,12 @@ describe("buildSpawnArgs", () => {
     expect(args.cwd).toBe("/abs/path/to/server");
   });
 
-  it("defaults AUTH_DATA to base64({access_token})", () => {
+  it("defaults AUTH_DATA to raw JSON {access_token}", () => {
     const args = buildSpawnArgs("linear", klavisPython("vendored/linear"), {
       token: { access_token: "tok-1" },
       tensorMcpRoot: TENSOR_MCP_ROOT,
     });
-    const decoded = JSON.parse(
-      Buffer.from(args.authData ?? "", "base64").toString("utf8"),
-    );
+    const decoded = JSON.parse(args.authData ?? "");
     expect(decoded).toEqual({ access_token: "tok-1" });
   });
 
@@ -92,9 +90,7 @@ describe("buildSpawnArgs", () => {
       token: { access_token: "xoxb-test" },
       tensorMcpRoot: TENSOR_MCP_ROOT,
     });
-    const decoded = JSON.parse(
-      Buffer.from(args.authData ?? "", "base64").toString("utf8"),
-    );
+    const decoded = JSON.parse(args.authData ?? "");
     expect(decoded).toEqual({
       authed_user: { access_token: "xoxb-test" },
     });

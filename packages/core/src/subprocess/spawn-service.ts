@@ -19,10 +19,14 @@ export function buildSpawnArgs(
     ? spawn.vendorDir
     : join(root, spawn.vendorDir);
 
+  // Klavis convention: AUTH_DATA env is RAW JSON. The x-auth-data HTTP
+  // header is the base64-encoded variant — that path is used by Klavis Cloud,
+  // not by our locally-spawned subprocesses. Encoding base64 here means
+  // `json.loads(os.getenv("AUTH_DATA"))` in the vendored server throws and
+  // the request hits the upstream API with an empty token (manifests as 401
+  // on Linear/Notion/GitHub, "Notion API key not found" on Notion).
   const forge = spawn.forgeAuthData ?? defaultForge;
-  const authData = Buffer.from(JSON.stringify(forge(opts.token))).toString(
-    "base64",
-  );
+  const authData = JSON.stringify(forge(opts.token));
 
   return {
     service,
