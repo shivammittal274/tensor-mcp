@@ -5,4 +5,4 @@
 // Why not `import pkg from "../package.json"`? `bun --compile` would embed
 // the whole package.json contents (dev dependencies + scripts + …) into
 // the binary as a JSON blob — wasteful for a single version string.
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
