@@ -1,11 +1,7 @@
-import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { Catalog } from "../catalog/catalog";
 import type { Service } from "../defineService";
 import type { ConnectionRecord } from "../stores/connections-store";
-import {
-  connectionIdFor,
-  type KeyValueStore,
-  type TokenBundle,
-} from "../stores/types";
+import { connectionIdFor, type KeyValueStore } from "../stores/types";
 
 export interface DisconnectAppRequest {
   app: string;
@@ -19,16 +15,25 @@ export interface DisconnectAppResult {
 
 export interface DisconnectAppDeps {
   getService: (id: string) => Service | undefined;
-  tokenStore: KeyValueStore<TokenBundle>;
-  oauthClientStore: KeyValueStore<OAuthClientInformationFull>;
   connections: KeyValueStore<ConnectionRecord>;
+  catalog: Catalog;
 }
 
 /**
- * Remove an app connection. Drops the token + OAuth client info + the
- * connection metadata. Catalog rows are intentionally kept — tools remain
- * discoverable via `search` (with `connected: false`), so the agent can
- * suggest reconnecting before recommending a different app.
+ * Remove an app from the active CLI surface. Two persistent stores are
+ * touched, one is left alone:
+ *
+ *   • `connections` (JSON file) — row removed.
+ *   • `catalog`     (SQLite)    — rows for this service dropped so they
+ *                                 vanish from `search` results.
+ *   • `tokenStore`  (keychain)  — **kept**. The credential survives
+ *                                 disconnect so a subsequent `connect <app>`
+ *                                 short-circuits the auth flow and reuses
+ *                                 it (no second OAuth round-trip, no
+ *                                 re-paste of API keys).
+ *
+ * To forget the credential permanently, the user clears it via their OS
+ * keychain UI (Keychain Access on macOS, Credential Manager on Windows).
  *
  * Idempotent: returns `status: "not_connected"` when there's no active
  * connection, without raising.
@@ -52,9 +57,8 @@ export async function disconnectApp(
     };
   }
 
-  await deps.tokenStore.delete(connectionId);
-  await deps.oauthClientStore.delete(connectionId);
   await deps.connections.delete(connectionId);
+  await deps.catalog.dropService(req.app);
 
   return {
     status: "disconnected",

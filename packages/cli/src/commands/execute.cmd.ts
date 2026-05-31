@@ -13,7 +13,7 @@ import { emitErr, emitOk } from "../utils/json";
  * `input_schema` (default `{}`).
  *
  * On 401 (either remote MCP or Pipedream-component path), silently refreshes
- * the OAuth token via the auth strategy's refresh-token grant and retries
+ * the OAuth token via the auth strategy's `refresh()` method and retries
  * once. On refresh failure, surfaces a "re-run connect" message — we never
  * re-open a browser from a non-interactive CLI context.
  */
@@ -46,20 +46,17 @@ export async function executeCmd(
         getPipedream: (a) => (a === app ? def.pipedream : undefined),
         tryRefresh: async (a) => {
           if (a !== app) throw new Error(`refresh not wired for '${a}'`);
-          return await def.auth.connect({
-            serviceId: connectionIdFor(app),
+          const id = connectionIdFor(app);
+          const bundle = await tokenStore.get(id);
+          if (!bundle) {
+            throw new Error(
+              `'${app}' has no stored bundle — run \`tensor-mcp connect ${app}\` first`,
+            );
+          }
+          return await def.auth.refresh(bundle, {
+            serviceId: id,
             tokenStore,
             oauthClientStore,
-            // Non-interactive: the SDK tries refresh_token first; only if
-            // that ALSO fails does it want to open a browser, which we
-            // explicitly block so the user gets a clean message.
-            io: {
-              openBrowser: async () => {
-                throw new Error(
-                  `token expired and refresh failed — run \`tensor-mcp connect ${app}\` to re-authenticate`,
-                );
-              },
-            },
           });
         },
       },

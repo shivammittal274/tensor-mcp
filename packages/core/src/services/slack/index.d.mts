@@ -1,7 +1,7 @@
 import type {
   PipedreamActionModule,
   PipedreamAppModule,
-} from "../../adapt/pipedream/types";
+} from "../../transports/pipedream/types";
 
 export const app: PipedreamAppModule;
 export const sendMessage: PipedreamActionModule;

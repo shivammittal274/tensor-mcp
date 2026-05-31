@@ -21,28 +21,30 @@ cli.command("apps", "List every registered app + connection status").action(
 cli
   .command(
     "connect <app> [token]",
-    "Authenticate with an app (OAuth opens browser; PAT/API-key reads the optional token arg)",
+    "Connect an app. Reuses the OS-keychain credential if present (no re-auth). " +
+      "Otherwise: OAuth opens a browser; PAT/API-key reads optional [token] arg or prompts.",
   )
   .action(async (app: string, token?: string) =>
     process.exit(await connectCmd(app, token)),
   );
 
 cli
-  .command("disconnect <app>", "Remove an app's stored credential")
+  .command(
+    "disconnect <app>",
+    "Remove the app from the active CLI (clears its catalog rows). " +
+      "The credential stays in the OS keychain so `connect` skips re-auth next time.",
+  )
   .action(async (app: string) => process.exit(await disconnectCmd(app)));
 
 cli
   .command(
     "search <query>",
-    "Search the tool catalog (BM25 + semantic fused via RRF; BM25-only when embeddings unavailable)",
+    "Search the tool catalog (BM25 + semantic fused via RRF; BM25-only when embeddings unavailable). " +
+      "Scope is always currently-connected apps.",
   )
   .option("--top-k <n>", "Max hits to return (default 3, max 50)")
-  .option("--threshold <score>", "Min score (default 0.02, 0 to disable)")
+  .option("--threshold <score>", "Min score (default 0.01, 0 to disable)")
   .option("--apps <list>", "Comma-separated app slugs to restrict to")
-  .option(
-    "--include-unconnected",
-    "Also show tools from apps you haven't connected",
-  )
   .action(
     async (
       query: string,
@@ -50,7 +52,6 @@ cli
         topK?: number | string;
         threshold?: number | string;
         apps?: string;
-        includeUnconnected?: boolean;
       },
     ) => process.exit(await searchCmd(query, opts)),
   );

@@ -1,11 +1,11 @@
-import { mcpDcrAuth } from "../auth";
+import { dcrAuth } from "../auth";
 import { defineService } from "../defineService";
 import { remoteMcp } from "../transports/remote";
 
 export default defineService({
   id: "jira",
   displayName: "Jira (Atlassian)",
-  auth: mcpDcrAuth({
+  auth: dcrAuth({
     mcpServerUrl: "https://mcp.atlassian.com",
     scope: "read:jira-work write:jira-work read:jira-user",
   }),

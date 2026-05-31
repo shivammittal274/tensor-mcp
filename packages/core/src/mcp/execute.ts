@@ -1,3 +1,4 @@
+import { withRefreshLock } from "../auth/refresh-lock";
 import type { PipedreamServiceConfig } from "../defineService";
 import {
   connectionIdFor,
@@ -39,14 +40,24 @@ export interface ExecuteToolDeps {
   /** Returns the app's Pipedream-component descriptor, if any. */
   getPipedream?: (app: string) => PipedreamServiceConfig | undefined;
   /**
-   * Silently refresh an OAuth token (uses the SDK's refresh-token grant).
-   * Returns the new bundle. Should throw if refresh fails — caller surfaces
-   * a "re-run connect" message. Pass `undefined` to disable refresh.
+   * Silently refresh an OAuth token via the strategy's `refresh()` method.
+   * Returns the new bundle. Should throw `AuthRefreshFailedError` if the
+   * vendor rejects the grant — caller surfaces a "re-run connect" message.
+   * Pass `undefined` to disable refresh.
    */
   tryRefresh?: (app: string) => Promise<TokenBundle>;
   /** Test override; defaults to the real Streamable-HTTP MCP client. */
   connectClient?: typeof connectMcpClient;
 }
+
+/**
+ * How long before `expires_at` we proactively refresh the token. Covers the
+ * longest realistic action runtime (Pipedream batch actions iterating
+ * paginated APIs) plus a small clock-skew tolerance. Vendor-independent —
+ * token *lifetime* varies by 3 orders of magnitude (HubSpot 30 min,
+ * Discord 7 days) but the buffer protects against runtime, not lifetime.
+ */
+const REFRESH_BUFFER_MS = 300_000;
 
 /**
  * Execute a discovered tool. Two transport branches, one each:
@@ -61,7 +72,16 @@ export interface ExecuteToolDeps {
  *    `transports/pipedream/` instantiates the action's `this` context (with
  *    a `$auth` proxy backed by our keychain) and invokes its `run()`.
  *
- * On any 401-shaped failure, attempt one silent token refresh + retry.
+ * Refresh strategy (applies to both branches):
+ *
+ *   1. Proactive: if the stored bundle's `expires_at` falls within
+ *      `REFRESH_BUFFER_MS`, refresh before sending the tool call.
+ *   2. Reactive: on a 401-shaped failure, refresh once and retry.
+ *
+ * Both paths route through `withRefreshLock(app, ...)` so two parallel
+ * tool calls (under `tensor-mcp serve`) coalesce on one refresh instead
+ * of racing — important for vendors with rotating refresh tokens like
+ * Microsoft Entra and Dropbox.
  */
 export async function executeTool(
   req: ExecuteToolRequest,
@@ -77,22 +97,37 @@ export async function executeTool(
     throw new Error(`unknown app '${req.app}'`);
   }
 
-  const initialToken = await deps.tokenStore.get(connectionIdFor(req.app));
-  if (!initialToken) {
+  const stored = await deps.tokenStore.get(connectionIdFor(req.app));
+  if (!stored) {
     throw new Error(`'${req.app}' is not connected`);
+  }
+
+  const safeRefresh = deps.tryRefresh
+    ? () => withRefreshLock(req.app, () => deps.tryRefresh!(req.app))
+    : undefined;
+
+  // Proactive refresh: only fires when the bundle has expiry metadata
+  // (OAuth flows) and we're within the buffer.
+  let initialToken = stored;
+  if (
+    safeRefresh &&
+    stored.expires_at &&
+    stored.expires_at - Date.now() < REFRESH_BUFFER_MS
+  ) {
+    initialToken = await safeRefresh();
   }
 
   if (pipedream) {
     return await runOnce(
       () => executePipedream(req, pipedream, initialToken),
-      deps.tryRefresh ? () => deps.tryRefresh!(req.app) : undefined,
+      safeRefresh,
       (token) => executePipedream(req, pipedream, token),
     );
   }
   if (remote) {
     return await runOnce(
       () => executeRemote(req, remote, initialToken, deps.connectClient),
-      deps.tryRefresh ? () => deps.tryRefresh!(req.app) : undefined,
+      safeRefresh,
       (token) => executeRemote(req, remote, token, deps.connectClient),
     );
   }

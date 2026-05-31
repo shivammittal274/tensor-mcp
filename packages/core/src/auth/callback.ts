@@ -18,6 +18,14 @@ export interface CallbackResult {
 export interface CallbackOptions {
   expectedState: string;
   timeoutMs?: number;
+  /**
+   * Bind to a specific port instead of letting the OS pick (port 0). Use
+   * when the vendor's OAuth app registration requires an exact redirect URI
+   * (e.g. Slack — it won't accept a wildcard port). The port should match
+   * the registered `Redirect URL` on the vendor's app config.
+   * Fails immediately if the port is busy.
+   */
+  port?: number;
 }
 
 export interface CallbackHandle {
@@ -62,7 +70,7 @@ export async function startCallbackServer(opts: CallbackOptions): Promise<Callba
   awaitCode.finally(() => clearTimeout(timer)).catch(() => {});
 
   server = Bun.serve({
-    port: 0,
+    port: opts.port ?? 0,
     hostname: "127.0.0.1",
     fetch(req) {
       const url = new URL(req.url);

@@ -5,6 +5,9 @@ import type { AuthStrategy, ConnectOptions } from "./types";
  * Auth strategy for services that issue user-pasteable credentials —
  * either a Personal Access Token (GitHub-style) or a long-lived API key
  * (Cal.com-style). The mechanism is identical; only the framing differs.
+ *
+ * Refresh is a no-op: paste credentials don't have a refresh-token grant.
+ * On expiry / revocation the user re-pastes via `tensor-mcp connect`.
  */
 
 export interface PasteTokenConfig {
@@ -21,6 +24,9 @@ function pasteTokenAuth(
 ): AuthStrategy {
   return {
     method,
+    isConfigured() {
+      return { ok: true };
+    },
     describe() {
       return {
         instructions: `Generate a ${noun} at: ${config.generationUrl}\n${config.description}`,
@@ -36,6 +42,9 @@ function pasteTokenAuth(
       if (!trimmed) throw new Error(`Empty ${noun}`);
       const bundle: TokenBundle = { access_token: trimmed };
       await opts.tokenStore.set(opts.serviceId, bundle);
+      return bundle;
+    },
+    async refresh(bundle: TokenBundle): Promise<TokenBundle> {
       return bundle;
     },
   };

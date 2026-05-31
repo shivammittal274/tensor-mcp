@@ -1,61 +1,38 @@
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir, platform, arch } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 /**
- * Downloads + verifies the semantic-search model and the platform-specific
- * `libonnxruntime` dylib on demand, caching them under
- * `~/.tensor-mcp/embeddings/`. Never throws — returns
- * `{available: false, reason}` so the caller (`search.ts`) can transparently
- * fall back to BM25-only.
+ * Cache-only probe for the embeddings model + libonnxruntime.
  *
- * Layout under the cache dir:
+ * Never touches the network, never downloads anything — it just answers
+ * "are the files on disk?" `tensor-mcp search` calls this once per query
+ * and falls back to BM25-only when the answer is no.
+ *
+ * The actual download happens in `install.sh` (right after the binary is
+ * placed on PATH) so the one-time ~100 MB pause lands at install time
+ * rather than on the first user search. If the user installed via any
+ * mechanism that didn't run `install.sh` (downloaded the binary by hand,
+ * blew away `~/.tensor-mcp/embeddings/`, …), search keeps working — just
+ * with the BM25 ranker only. They can re-run `install.sh` to get
+ * semantic ranking back.
+ *
+ * Cache layout under `embeddingsCacheDir()`:
  *
  *   embeddings/
  *     fast-all-MiniLM-L6-v2/      ← exact path fastembed looks for
  *       model.onnx
  *       tokenizer.json
- *       …
  *     runtime/
  *       libonnxruntime.1.21.0.dylib   (macOS) or .so.1.21.0 (Linux)
- *
- * Asset URLs live in the GitHub release `embeddings-v1` on the repo — see
- * `scripts/publish-embeddings.ts` for the publisher side. The manifest
- * holds SHA-256 + size + URL per file; we verify every download before
- * an atomic rename into place.
  */
 
-const MANIFEST_URL =
-  "https://github.com/shivammittal274/tensor-mcp/releases/download/embeddings-v1/manifest.json";
 const CACHE_OVERRIDE_ENV = "TENSOR_MCP_EMBEDDINGS_DIR";
-
-interface ManifestEntry {
-  filename: string;
-  url: string;
-  sha256: string;
-  size: number;
-}
-
-interface Manifest {
-  version: string;
-  /**
-   * Model files. `dir` is the *relative* directory inside the cache root
-   * — `fast-all-MiniLM-L6-v2/` is what fastembed expects.
-   */
-  model: { dir: string; files: ManifestEntry[] };
-  /** Per `<platform>-<arch>` libonnxruntime asset, e.g. `darwin-arm64`. */
-  runtimes: Record<string, ManifestEntry>;
-}
 
 export interface EnsureResult {
   available: boolean;
   /** Set when `available: false`. */
-  reason?:
-    | "unsupported-platform"
-    | "manifest-fetch-failed"
-    | "download-failed"
-    | "offline";
+  reason?: "unsupported-platform" | "not-installed";
   /** Set when `available: true`. fastembed reads from `<cacheDir>/fast-…/`. */
   cacheDir?: string;
   /** Set when `available: true`. Path to the libonnxruntime file on disk. */
@@ -64,22 +41,34 @@ export interface EnsureResult {
   runtimeFilename?: string;
 }
 
-let memoized: Promise<EnsureResult> | null = null;
+let memoized: EnsureResult | null = null;
 
 export function embeddingsCacheDir(): string {
   return process.env[CACHE_OVERRIDE_ENV] ?? join(homedir(), ".tensor-mcp", "embeddings");
 }
 
+/**
+ * Memoized for the lifetime of the process — call sites can hit it once
+ * per query without worrying about repeated `fs.statSync` overhead.
+ *
+ * Returns a Promise to preserve the historic signature `search` already
+ * awaits, but the body is sync: there's no network or disk wait inside.
+ */
 export async function ensureEmbeddings(): Promise<EnsureResult> {
   if (memoized) return memoized;
-  memoized = doEnsure();
+  const target = platformKey();
+  if (!target) {
+    memoized = { available: false, reason: "unsupported-platform" };
+    return memoized;
+  }
+  const cached = checkCacheComplete(embeddingsCacheDir());
+  memoized = cached ?? { available: false, reason: "not-installed" };
   return memoized;
 }
 
 /**
  * Drop the memoized probe so the next `ensureEmbeddings()` re-evaluates.
- * Tests use this between cases — production code shouldn't need it because
- * the probe is deliberately a once-per-process decision.
+ * Tests use this between cases — production code shouldn't need it.
  */
 export function resetEnsureEmbeddingsCache(): void {
   memoized = null;
@@ -90,135 +79,46 @@ function platformKey(): string | null {
   if (platform() === "darwin" && arch() === "x64") return "darwin-x64";
   if (platform() === "linux" && arch() === "x64") return "linux-x64";
   if (platform() === "linux" && arch() === "arm64") return "linux-arm64";
+  if (platform() === "win32" && arch() === "x64") return "win32-x64";
+  if (platform() === "win32" && arch() === "arm64") return "win32-arm64";
   return null;
 }
 
-async function doEnsure(): Promise<EnsureResult> {
-  const target = platformKey();
-  if (!target) {
-    return { available: false, reason: "unsupported-platform" };
-  }
-
-  const cacheDir = embeddingsCacheDir();
-
-  // Fast path: if both model + runtime are already cached, skip the network.
-  // We trust the cache because every download path verifies SHA-256 before
-  // atomic-renaming into place — a half-written file can't exist here.
-  const cached = checkCacheComplete(cacheDir, target);
-  if (cached) return cached;
-
-  // Cold path: fetch manifest, download missing assets.
-  let manifest: Manifest;
-  try {
-    manifest = await fetchManifest();
-  } catch (err) {
-    return {
-      available: false,
-      reason: looksOffline(err)
-        ? "offline"
-        : "manifest-fetch-failed",
-    };
-  }
-
-  try {
-    await downloadModelFiles(manifest, cacheDir);
-    const runtime = manifest.runtimes[target];
-    if (!runtime) {
-      // Manifest exists but doesn't ship this arch — same UX as Windows.
-      return { available: false, reason: "unsupported-platform" };
-    }
-    await downloadOne(runtime, join(cacheDir, "runtime"));
-    return done(cacheDir, runtime.filename);
-  } catch (err) {
-    return {
-      available: false,
-      reason: looksOffline(err) ? "offline" : "download-failed",
-    };
-  }
+/**
+ * Canonical local filename for the onnxruntime shared library on this
+ * platform. The shape that the napi-v3 binding (extracted by Bun at
+ * startup) tries to dlopen / LoadLibrary.
+ */
+function runtimeFilenameForPlatform(): string | null {
+  if (platform() === "darwin") return "libonnxruntime.1.21.0.dylib";
+  if (platform() === "linux") return "libonnxruntime.so.1.21.0";
+  if (platform() === "win32") return "onnxruntime.dll";
+  return null;
 }
 
-function checkCacheComplete(cacheDir: string, target: string): EnsureResult | null {
+function checkCacheComplete(cacheDir: string): EnsureResult | null {
   // Model: fastembed expects `fast-all-MiniLM-L6-v2/{model.onnx,tokenizer.json,…}`.
   const modelDir = join(cacheDir, "fast-all-MiniLM-L6-v2");
   if (!existsSync(join(modelDir, "model.onnx"))) return null;
   if (!existsSync(join(modelDir, "tokenizer.json"))) return null;
 
-  // Runtime: filename varies by platform.
-  const runtimeFilename =
-    platform() === "darwin"
-      ? "libonnxruntime.1.21.0.dylib"
-      : "libonnxruntime.so.1.21.0";
+  const runtimeFilename = runtimeFilenameForPlatform();
+  if (!runtimeFilename) return null;
   const runtimePath = join(cacheDir, "runtime", runtimeFilename);
   if (!existsSync(runtimePath)) return null;
 
-  return done(cacheDir, runtimeFilename);
-}
+  // Windows-only: the napi binding delay-loads DirectML.dll for the GPU
+  // execution provider. We don't use GPU, but the import table reference
+  // is resolved at load time on some Windows versions and missing the
+  // file prevents the runtime from initializing. Always stage it.
+  if (platform() === "win32") {
+    if (!existsSync(join(cacheDir, "runtime", "DirectML.dll"))) return null;
+  }
 
-function done(cacheDir: string, runtimeFilename: string): EnsureResult {
   return {
     available: true,
     cacheDir,
-    runtimePath: join(cacheDir, "runtime", runtimeFilename),
+    runtimePath,
     runtimeFilename,
   };
-}
-
-async function fetchManifest(): Promise<Manifest> {
-  const res = await fetch(MANIFEST_URL);
-  if (!res.ok) {
-    throw new Error(`manifest fetch failed: ${res.status} ${res.statusText}`);
-  }
-  return (await res.json()) as Manifest;
-}
-
-async function downloadModelFiles(
-  manifest: Manifest,
-  cacheDir: string,
-): Promise<void> {
-  const dir = join(cacheDir, manifest.model.dir);
-  for (const entry of manifest.model.files) {
-    await downloadOne(entry, dir);
-  }
-}
-
-async function downloadOne(
-  entry: ManifestEntry,
-  dstDir: string,
-): Promise<void> {
-  const finalPath = join(dstDir, entry.filename);
-  if (existsSync(finalPath)) return; // already cached
-
-  mkdirSync(dstDir, { recursive: true });
-
-  const res = await fetch(entry.url);
-  if (!res.ok) {
-    throw new Error(
-      `download ${entry.url} failed: ${res.status} ${res.statusText}`,
-    );
-  }
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  const actualSha = createHash("sha256").update(bytes).digest("hex");
-  if (actualSha !== entry.sha256) {
-    throw new Error(
-      `sha256 mismatch for ${entry.filename}: expected ${entry.sha256.slice(0, 12)}…, got ${actualSha.slice(0, 12)}…`,
-    );
-  }
-
-  // Atomic rename: write to .part, fsync-ish, then move into place. Never
-  // leave a half-written file the next call would happily skip.
-  const partPath = `${finalPath}.part`;
-  mkdirSync(dirname(partPath), { recursive: true });
-  writeFileSync(partPath, bytes);
-  renameSync(partPath, finalPath);
-}
-
-function looksOffline(err: unknown): boolean {
-  const msg = (err as Error)?.message?.toLowerCase() ?? "";
-  return (
-    msg.includes("network") ||
-    msg.includes("getaddrinfo") ||
-    msg.includes("enotfound") ||
-    msg.includes("econnrefused") ||
-    msg.includes("etimedout")
-  );
 }

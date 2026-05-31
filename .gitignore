@@ -16,3 +16,9 @@ __pycache__/
 
 .embedding-cache/
 packages/core/src/embeddings/libs/active/
+
+# Local backup of obsolete files (publish-embeddings.ts + source
+# libs/model that used to feed the embeddings-v1 GitHub release). The
+# binary no longer reads from these paths — see install.sh which now
+# pulls from HuggingFace + unpkg directly.
+.backup/

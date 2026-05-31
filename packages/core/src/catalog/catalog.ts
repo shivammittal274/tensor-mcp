@@ -133,6 +133,16 @@ export class Catalog {
     txn(tools);
   }
 
+  /**
+   * Delete every row for `service`. Idempotent — no-op when nothing matches.
+   * Used by `disconnectApp` to keep the catalog in sync with active
+   * connections: only currently-connected services are visible to search.
+   */
+  async dropService(service: string): Promise<void> {
+    const db = this.ensureOpen();
+    db.run("DELETE FROM tools WHERE service = ?", [service]);
+  }
+
   /** Bulk-update only the embedding column. Cheap on top of a prior ingest. */
   async updateEmbeddings(
     rows: Array<{ service: string; toolName: string; embedding: Float32Array }>,

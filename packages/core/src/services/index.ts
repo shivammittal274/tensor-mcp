@@ -7,7 +7,7 @@
 //          export default defineService({
 //            id: "<id>",
 //            displayName: "<Display Name>",
-//            auth: mcpDcrAuth(...) | staticOAuthAuth(...) | ...,
+//            auth: dcrAuth(...) | oauth(...) | apiKeyAuth(...) | ...,
 //            remote: remoteMcp("<vendor mcp url>"),
 //          });
 //      Add an import below.
@@ -25,15 +25,33 @@
 // service's `defineService({...})` entry.
 
 import type { Service } from "../defineService";
+import anthropic from "./anthropic";
 import asana from "./asana";
+import braveSearch from "./brave_search_api";
 import calCom from "./cal-com";
 import confluence from "./confluence";
+import firecrawl from "./firecrawl";
+import github from "./github";
 import jira from "./jira";
 import linear from "./linear";
 import notion from "./notion";
 import slack from "./slack";
+import tavily from "./tavily";
 
-const ALL: Service[] = [linear, notion, jira, confluence, asana, calCom, slack];
+const ALL: Service[] = [
+  linear,
+  notion,
+  jira,
+  confluence,
+  asana,
+  calCom,
+  slack,
+  github,
+  anthropic,
+  braveSearch,
+  tavily,
+  firecrawl,
+];
 
 export const SERVICES: Record<string, Service> = Object.fromEntries(
   ALL.map((s) => [s.id, s]),
@@ -49,11 +67,9 @@ export function listServices(): Service[] {
 
 /**
  * Services that can be connected today vs. those waiting on configuration
- * (e.g. a static OAuth client_id env var that hasn't been set yet).
+ * (e.g. an OAuth client_id env var that hasn't been set yet). Uses each
+ * strategy's typed `isConfigured()` — no string-matching on prose.
  */
 export function listConnectableServices(): Service[] {
-  return ALL.filter(
-    (s) =>
-      !s.auth.describe().instructions.toLowerCase().includes("not configured"),
-  );
+  return ALL.filter((s) => s.auth.isConfigured().ok);
 }

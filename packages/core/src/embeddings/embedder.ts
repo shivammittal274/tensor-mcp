@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { platform, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { ensureEmbeddings } from "./ensure";
 
 /**
@@ -49,7 +49,7 @@ async function init(): Promise<Embedder> {
     throw new EmbedderUnavailableError(probe.reason ?? "unknown");
   }
 
-  await stageRuntimeForDyld(probe.runtimePath, probe.runtimeFilename ?? "");
+  await stageRuntimeForLoader(probe.runtimePath, probe.runtimeFilename ?? "");
 
   const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
   const model = await FlagEmbedding.init({
@@ -75,15 +75,26 @@ async function init(): Promise<Embedder> {
 }
 
 /**
- * Copy the cached libonnxruntime to `$TMPDIR/<expected-filename>` so dyld
- * (macOS) / ld.so (Linux) can resolve the `@rpath/libonnxruntime…`
- * reference baked into the .node binding. Linux additionally needs a copy
- * under the SONAME (`libonnxruntime.so.1`).
+ * Copy the cached onnxruntime library to a location the OS linker will
+ * find. Three platform conventions:
+ *
+ *   • macOS — dyld resolves the `@rpath/libonnxruntime…` reference baked
+ *     into the .node binding relative to the .node's directory (which Bun
+ *     extracts to $TMPDIR at startup). Copy `libonnxruntime.1.21.0.dylib`
+ *     to $TMPDIR.
+ *
+ *   • Linux — ld.so wants both the SONAME (`libonnxruntime.so.1`) and the
+ *     versioned filename (`libonnxruntime.so.1.21.0`) in the same dir as
+ *     the .node. Copy both to $TMPDIR.
+ *
+ *   • Windows — LoadLibrary checks the dir of the calling .node first.
+ *     Copy `onnxruntime.dll` + `DirectML.dll` (delay-load reference) to
+ *     $TMPDIR.
  *
  * Idempotent: `existsSync` short-circuits if a previous run already
- * staged it.
+ * staged the files.
  */
-async function stageRuntimeForDyld(
+async function stageRuntimeForLoader(
   src: string,
   filename: string,
 ): Promise<void> {
@@ -95,5 +106,13 @@ async function stageRuntimeForDyld(
   if (filename.endsWith(".so.1.21.0")) {
     const sonameDst = join(dir, "libonnxruntime.so.1");
     if (!existsSync(sonameDst)) copyFileSync(src, sonameDst);
+  }
+  if (platform() === "win32") {
+    // DirectML.dll lives next to onnxruntime.dll in our cache layout.
+    const directmlSrc = join(dirname(src), "DirectML.dll");
+    const directmlDst = join(dir, "DirectML.dll");
+    if (existsSync(directmlSrc) && !existsSync(directmlDst)) {
+      copyFileSync(directmlSrc, directmlDst);
+    }
   }
 }

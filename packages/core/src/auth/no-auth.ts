@@ -10,12 +10,18 @@ import type { AuthStrategy, ConnectOptions } from "./types";
 export function noAuth(): AuthStrategy {
   return {
     method: "no-auth",
+    isConfigured() {
+      return { ok: true };
+    },
     describe() {
       return { instructions: "No authentication required." };
     },
     async connect(opts: ConnectOptions): Promise<TokenBundle> {
       const bundle: TokenBundle = { access_token: "anonymous" };
       await opts.tokenStore.set(opts.serviceId, bundle);
+      return bundle;
+    },
+    async refresh(bundle: TokenBundle): Promise<TokenBundle> {
       return bundle;
     },
   };

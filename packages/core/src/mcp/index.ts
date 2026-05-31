@@ -27,8 +27,6 @@ export {
 } from "./execute";
 export {
   search,
-  type MissingConnection,
-  type SearchDeps,
   type SearchRequest,
   type SearchResult,
   type ToolHit,

@@ -1,14 +1,17 @@
 import {
+  Catalog,
   ConnectionsStore,
   disconnectApp,
   getService,
-  OAuthClientStore,
-  TokenStore,
 } from "@tensor-mcp/core";
 import { emitErr, emitOk } from "../utils/json";
 
 /**
- * `tensor-mcp disconnect <app>` — pairs with the MCP `disconnect_app` tool.
+ * `tensor-mcp disconnect <app>` — removes the app from the active CLI
+ * surface (clears its connection record + catalog rows). The credential
+ * stays in the OS keychain — re-running `tensor-mcp connect <app>` skips
+ * the auth flow and uses the stored credential.
+ *
  * Idempotent: returns `status: "not_connected"` when there's no active
  * connection, never raises.
  */
@@ -16,17 +19,19 @@ export async function disconnectCmd(app: string): Promise<number> {
   if (!getService(app)) {
     return emitErr(`unknown app '${app}'`);
   }
-  const tokenStore = new TokenStore();
-  const oauthClientStore = new OAuthClientStore();
   const connections = new ConnectionsStore();
+  const catalog = new Catalog();
+  await catalog.open();
 
   try {
     const result = await disconnectApp(
       { app },
-      { getService, tokenStore, oauthClientStore, connections },
+      { getService, connections, catalog },
     );
     return emitOk(result);
   } catch (err) {
     return emitErr((err as Error).message);
+  } finally {
+    catalog.close();
   }
 }

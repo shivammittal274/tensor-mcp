@@ -27,7 +27,7 @@ import { VERSION } from "../version";
 const SEARCH_TOOL_DEF = {
   name: "search_tools",
   description:
-    "**PREFERRED STARTING POINT** for any user request that might need a third-party tool. Returns top tools ranked by BM25 + semantic embeddings (fused via RRF) with full input schemas AND pre-extracted required_params + optional_params so the next `execute` call works in one shot. Default scope = connected apps only; pass `include_unconnected: true` for discovery. Threshold-filtered (default 0.02) — empty hits means no confident match.",
+    "**PREFERRED STARTING POINT** for any user request that might need a third-party tool. Returns top tools ranked by BM25 + semantic embeddings (fused via RRF) with full input schemas AND pre-extracted required_params + optional_params so the next `execute` call works in one shot. Scope is always currently-connected apps — if you suspect the right tool lives in an app the user hasn't connected, suggest `connect_app <id>` first. Threshold-filtered (default 0.01) — empty hits means no confident match within the connected set.",
   inputSchema: {
     type: "object" as const,
     required: ["query"],
@@ -45,19 +45,13 @@ const SEARCH_TOOL_DEF = {
       threshold: {
         type: "number",
         description:
-          "Minimum score. Hits below are dropped. Default 0.02 — pass 0 to disable.",
-        default: 0.02,
+          "Minimum score. Hits below are dropped. Default 0.01 — pass 0 to disable.",
+        default: 0.01,
       },
       apps: {
         type: "array",
         items: { type: "string" },
         description: "Restrict to specific app slugs (e.g. ['linear']).",
-      },
-      include_unconnected: {
-        type: "boolean",
-        description:
-          "Also surface tools from apps the user hasn't connected (rare — for discovery flows).",
-        default: false,
       },
     },
   },
@@ -95,11 +89,12 @@ const LIST_APPS_DEF = {
 const CONNECT_APP_DEF = {
   name: "connect_app",
   description:
-    "Connect an app so its tools become callable. Behavior depends on the app's `auth_method`:\n" +
-    "• 'oauth-dcr' / 'oauth-static': returns `{status: 'awaiting_user', auth_url}` immediately. Surface the URL to the user; the local callback server waits up to 5 minutes for them to authenticate. After they finish, poll `list_apps` until `connected: true`.\n" +
-    "• 'pat' / 'api-key': pass the user-provided credential as `token`. Without `token`, returns `status: 'needs_token'` with the URL where the user generates one.\n" +
+    "Connect an app so its tools become callable. Behavior:\n" +
+    "• If a credential is already in the OS keychain (from a prior connect, or a previous `disconnect_app` that intentionally preserved it): instantly reconnects, re-ingests the catalog, returns `{status: 'connected', reused_credential: true}`. Expired OAuth tokens are refreshed transparently using the stored refresh_token. If the refresh fails the flow falls through to a fresh auth round.\n" +
+    "• Fresh OAuth ('oauth-dcr' / 'oauth'): returns `{status: 'awaiting_user', auth_url}` immediately. Surface the URL to the user; the local callback server waits up to 5 minutes for them to authenticate. After they finish, poll `list_apps` until `connected: true`.\n" +
+    "• Fresh paste ('pat' / 'api-key'): pass the user-provided credential as `token`. Without `token` (and no keychain entry), returns `{status: 'needs_token'}` with the URL where the user generates one.\n" +
     "• 'no-auth': just connect; `token` ignored.\n" +
-    "On success, the catalog grows and `search_tools` immediately picks up the new tools.",
+    "On success the catalog grows and `search_tools` immediately picks up the new tools.",
   inputSchema: {
     type: "object" as const,
     required: ["app"],
@@ -117,7 +112,7 @@ const CONNECT_APP_DEF = {
 const DISCONNECT_APP_DEF = {
   name: "disconnect_app",
   description:
-    "Remove an app's stored credential + connection metadata. Catalog rows stay so the tools remain discoverable via `search_tools` (with `connected: false`) until the user reconnects.",
+    "Remove the app from the active CLI. Drops its catalog rows so search no longer surfaces them. The credential stays in the OS keychain — a subsequent `connect_app` skips re-auth and snaps the connection back instantly.",
   inputSchema: {
     type: "object" as const,
     required: ["app"],
@@ -186,7 +181,6 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
         const result = await search(
           catalog,
           asMcpRequest<Parameters<typeof search>[1]>(args),
-          { isConnected },
         );
         return ok(result);
       }
@@ -200,17 +194,17 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
             tryRefresh: async (app) => {
               const def = SERVICES[app];
               if (!def) throw new Error(`unknown app '${app}'`);
-              return await def.auth.connect({
-                serviceId: connectionIdFor(app),
+              const id = connectionIdFor(app);
+              const bundle = await tokenStore.get(id);
+              if (!bundle) {
+                throw new Error(
+                  `'${app}' has no stored bundle — call connect_app first`,
+                );
+              }
+              return await def.auth.refresh(bundle, {
+                serviceId: id,
                 tokenStore,
                 oauthClientStore,
-                io: {
-                  openBrowser: async () => {
-                    throw new Error(
-                      `token expired and refresh failed for '${app}' — call connect_app again to re-authenticate`,
-                    );
-                  },
-                },
               });
             },
           },
@@ -243,9 +237,8 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
           asMcpRequest<Parameters<typeof disconnectApp>[0]>(args),
           {
             getService: (id) => SERVICES[id],
-            tokenStore,
-            oauthClientStore,
             connections,
+            catalog,
           },
         );
         return ok(result);
@@ -372,7 +365,7 @@ async function handleConnectAppMcp(
   if (!def) throw new Error(`unknown app '${req.app}'`);
 
   const method = def.auth.method;
-  const isOAuth = method === "oauth-dcr" || method === "oauth-static";
+  const isOAuth = method === "oauth-dcr" || method === "oauth";
 
   if (!isOAuth) {
     const result = await connectApp(req, deps);

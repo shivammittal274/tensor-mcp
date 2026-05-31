@@ -1,5 +1,5 @@
-export type { AuthIO, AuthMethod, AuthStrategy, ConnectOptions } from "./types";
-export { mcpDcrAuth, type McpDcrAuthConfig } from "./mcp-dcr";
+export type { AuthIO, AuthMethod, AuthStrategy, ConnectOptions, RefreshOptions } from "./types";
+export { dcrAuth, type DcrAuthConfig } from "./dcr";
 export { noAuth } from "./no-auth";
 export {
   apiKeyAuth,
@@ -7,8 +7,11 @@ export {
   patAuth,
   type PatAuthConfig,
 } from "./paste-token";
-export { staticOAuthAuth, type StaticOAuthConfig } from "./static-oauth";
 export {
-  StaticOAuthProvider,
-  type StaticOAuthProviderOpts,
-} from "./static-oauth-provider";
+  oauth,
+  type OAuthConfig,
+  type ParsedTokenResponse,
+  type ParsedTokens,
+} from "./oauth";
+export { AuthNotConfiguredError, AuthRefreshFailedError } from "./errors";
+export { withRefreshLock } from "./refresh-lock";

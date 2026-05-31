@@ -1,4 +1,8 @@
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+import {
+  AuthNotConfiguredError,
+  AuthRefreshFailedError,
+} from "../auth/errors";
 import type { AuthIO } from "../auth/types";
 import { ingestService } from "../catalog/ingest";
 import type { Catalog } from "../catalog/catalog";
@@ -10,12 +14,19 @@ import {
   type TokenBundle,
 } from "../stores/types";
 
+/**
+ * How close to `expires_at` we consider a bundle "stale" during reconnect.
+ * Smaller than the runtime refresh window in `mcp/execute.ts` — reconnect
+ * is one-shot, not part of a workflow, so a tight 60s buffer is enough.
+ */
+const RECONNECT_REFRESH_WINDOW_MS = 60_000;
+
 export interface ConnectAppRequest {
   /** App slug (e.g. "linear"). */
   app: string;
   /**
-   * For PAT/API-key apps: the credential to persist. Required for those
-   * auth methods when invoked outside an interactive TTY. Ignored for OAuth
+   * For PAT/API-key apps: the credential to persist. When supplied,
+   * always overwrites any existing keychain entry. Ignored for OAuth
    * apps (DCR + static) and no-auth apps.
    */
   token?: string;
@@ -30,6 +41,12 @@ export interface ConnectAppResult {
   tools_indexed?: number;
   /** When `status === "needs_token" | "not_configured"`. Next step prose. */
   instructions?: string;
+  /**
+   * When `status === "connected"`, set to `true` when the credential was
+   * loaded from the OS keychain rather than freshly acquired. UX hint:
+   * the CLI/MCP path skipped the OAuth flow / paste-token prompt.
+   */
+  reused_credential?: boolean;
 }
 
 export interface ConnectAppDeps {
@@ -51,21 +68,25 @@ export interface ConnectAppDeps {
 }
 
 /**
- * Connect an app end-to-end. Per auth method:
+ * Connect an app end-to-end. Three entry points:
  *
- * - `oauth-dcr` / `oauth-static`: opens the user's browser via the strategy's
- *   `redirectToAuthorization`, blocks on the loopback callback (5 min). The
- *   `token` field is ignored.
- * - `pat` / `api-key`: persists `token` directly. If absent, returns
- *   `status: "needs_token"` with the strategy's `describe()` instructions
- *   so the caller can surface "paste your token here" prose.
- * - `noAuth`: persists an anonymous bundle. `token` is ignored.
+ *   • Reconnect (no `token` arg, credential already in keychain) — skips
+ *     the auth flow entirely, re-adds the catalog rows, marks the
+ *     connection live. Common after a `disconnect` (which intentionally
+ *     keeps the keychain entry around for fast reconnection).
  *
- * On success: persists the connection record + ingests the catalog. We
- * deliberately do NOT compute embeddings here — the first `search` after
- * connect lazily downloads the model (if needed) and embeds whatever's
- * missing, so users who only run BM25-style searches never pay for
- * embeddings they don't use.
+ *   • Fresh OAuth (`oauth-dcr` / `oauth` methods) — opens the user's
+ *     browser via the strategy's `openBrowser` IO callback, blocks on the
+ *     loopback callback (5 min). Persists the resulting bundle.
+ *
+ *   • Fresh paste (`pat` / `api-key` methods) — when `token` is supplied,
+ *     stores it directly; when absent, returns `needs_token` with the
+ *     strategy's `describe()` prose so the caller can show the
+ *     vendor-specific prompt.
+ *
+ * On success: writes the connection record + ingests the catalog so the
+ * tools become discoverable via `search`. Embeddings are computed lazily
+ * on the first `search` call to keep `connect` fast.
  */
 export async function connectApp(
   req: ConnectAppRequest,
@@ -77,8 +98,35 @@ export async function connectApp(
   }
 
   const method = def.auth.method;
-  const needsTokenInput = method === "pat" || method === "api-key";
+  const connectionId = connectionIdFor(req.app);
 
+  // ── Reconnect path: credential already in keychain, no new token supplied ──
+  // The user disconnected previously (or just rebooted) and wants the app
+  // active again. Skip the auth flow if we can; just re-attach + re-ingest
+  // the catalog. For OAuth bundles past expiry, transparently refresh first
+  // so the first `execute` call doesn't take the 401-then-refresh hit.
+  if (!req.token) {
+    const bundle = await tryReuseExisting(deps, def, connectionId);
+    if (bundle) {
+      const tools_indexed = await persistConnectionAndIngest(
+        deps,
+        def,
+        connectionId,
+        bundle,
+      );
+      return {
+        status: "connected",
+        app: req.app,
+        display_name: def.displayName,
+        auth_method: method,
+        tools_indexed,
+        reused_credential: true,
+      };
+    }
+  }
+
+  // ── Fresh paste: paste-style strategies need a `token` to proceed ──
+  const needsTokenInput = method === "pat" || method === "api-key";
   if (needsTokenInput && (!req.token || req.token.trim() === "")) {
     return {
       status: "needs_token",
@@ -89,7 +137,18 @@ export async function connectApp(
     };
   }
 
-  const connectionId = connectionIdFor(req.app);
+  // ── Fresh OAuth (or paste with token): pre-flight isConfigured ──
+  const status = def.auth.isConfigured();
+  if (!status.ok) {
+    return {
+      status: "not_configured",
+      app: req.app,
+      display_name: def.displayName,
+      auth_method: method,
+      instructions: status.reason,
+    };
+  }
+
   let bundle: TokenBundle;
   try {
     bundle = await def.auth.connect({
@@ -99,34 +158,24 @@ export async function connectApp(
       io: mergeIO(deps.io, req.token),
     });
   } catch (err) {
-    const msg = (err as Error).message;
-    if (msg.toLowerCase().includes("not configured")) {
+    if (err instanceof AuthNotConfiguredError) {
       return {
         status: "not_configured",
         app: req.app,
         display_name: def.displayName,
         auth_method: method,
-        instructions: msg,
+        instructions: err.hint,
       };
     }
     throw err;
   }
 
-  await deps.connections.set(connectionId, {
-    service: req.app,
+  const tools_indexed = await persistConnectionAndIngest(
+    deps,
+    def,
     connectionId,
-    displayName: def.displayName,
-    connectedAt: Date.now(),
-  });
-
-  const tools_indexed = await ingestService(deps.catalog, {
-    service: req.app,
-    remote: def.remote,
-    pipedream: def.pipedream,
-    token: bundle,
-  });
-
-  await deps.onCatalogChanged?.();
+    bundle,
+  );
 
   return {
     status: "connected",
@@ -135,6 +184,73 @@ export async function connectApp(
     auth_method: method,
     tools_indexed,
   };
+}
+
+/**
+ * Decide whether the stored bundle can be reused without running the auth
+ * flow. Four cases:
+ *
+ *   1. No stored bundle                       → null (fall through to auth)
+ *   2. Bundle has no `expires_at`             → reuse as-is (paste tokens,
+ *                                                long-lived OAuth like
+ *                                                Slack xoxb-)
+ *   3. Bundle still valid (> 60s remaining)   → reuse as-is
+ *   4. Bundle stale → try `strategy.refresh()`:
+ *        a. Refresh succeeds                  → reuse the new bundle
+ *        b. `AuthRefreshFailedError`          → null (fall through to a
+ *                                                fresh auth flow)
+ *        c. Other error                       → rethrow
+ */
+async function tryReuseExisting(
+  deps: ConnectAppDeps,
+  def: Service,
+  connectionId: string,
+): Promise<TokenBundle | null> {
+  const existing = await deps.tokenStore.get(connectionId);
+  if (!existing) return null;
+  if (!existing.expires_at) return existing;
+  if (existing.expires_at > Date.now() + RECONNECT_REFRESH_WINDOW_MS) {
+    return existing;
+  }
+  try {
+    return await def.auth.refresh(existing, {
+      serviceId: connectionId,
+      tokenStore: deps.tokenStore,
+      oauthClientStore: deps.oauthClientStore,
+    });
+  } catch (err) {
+    if (err instanceof AuthRefreshFailedError) return null;
+    throw err;
+  }
+}
+
+/**
+ * Shared tail of both the reconnect and the fresh-connect paths: record
+ * the connection, ingest the service's tools into the catalog, fire the
+ * optional `onCatalogChanged` callback. Pure side effects, no branching.
+ */
+async function persistConnectionAndIngest(
+  deps: ConnectAppDeps,
+  def: Service,
+  connectionId: string,
+  bundle: TokenBundle,
+): Promise<number> {
+  await deps.connections.set(connectionId, {
+    service: def.id,
+    connectionId,
+    displayName: def.displayName,
+    connectedAt: Date.now(),
+  });
+
+  const tools_indexed = await ingestService(deps.catalog, {
+    service: def.id,
+    remote: def.remote,
+    pipedream: def.pipedream,
+    token: bundle,
+  });
+
+  await deps.onCatalogChanged?.();
+  return tools_indexed;
 }
 
 // Compose an AuthIO from the optional caller override plus the pasted-token

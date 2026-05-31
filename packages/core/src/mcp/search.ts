@@ -18,7 +18,7 @@ import { SemanticSearch } from "../search/semantic";
 // agent gets the same behavior whether it calls via the CLI or the MCP tool.
 const DEFAULT_TOP_K = 3;
 const MAX_TOP_K = 50;
-const DEFAULT_THRESHOLD = 0.02;
+const DEFAULT_THRESHOLD = 0.01;
 // Over-fetch each ranker so RRF has enough candidates to fuse meaningfully.
 // 4× over top_k is the standard Cormack et al. recommendation.
 const OVERFETCH = 4;
@@ -30,20 +30,15 @@ export interface SearchRequest {
   top_k?: number;
   /**
    * Lower bound on score (RRF when fused, BM25 otherwise). Hits below the
-   * threshold are dropped. Default 0.02. Pass 0 to disable filtering.
+   * threshold are dropped. Default 0.01. Pass 0 to disable filtering.
    */
   threshold?: number;
   /**
-   * Restrict to specific app slugs. Default: only currently-connected apps
-   * (see `include_unconnected`).
+   * Restrict to specific app slugs. Always intersected with the set of
+   * currently-connected apps (the catalog only holds connected services'
+   * tools — disconnect drops them).
    */
   apps?: string[];
-  /**
-   * Search tools across ALL apps, even those the user hasn't connected.
-   * Defaults to false — the agent typically wants only callable tools.
-   * Set true for discovery flows ("what could I do with Slack?").
-   */
-  include_unconnected?: boolean;
 }
 
 export interface ToolHit {
@@ -54,18 +49,12 @@ export interface ToolHit {
   input_schema: unknown;
   required_params: ParamSummary[];
   optional_params: ParamSummary[];
-  connected: boolean;
   /**
    * Present only when both BM25 and semantic rankers contributed. Maps
    * ranker name → 0-indexed rank in that ranker. Useful for debugging why
    * a hit landed where it did.
    */
   ranker_contributions?: Record<string, number>;
-}
-
-export interface MissingConnection {
-  app: string;
-  reason: string;
 }
 
 export interface SearchResult {
@@ -76,17 +65,6 @@ export interface SearchResult {
    * user's box (e.g. Windows, or first run before download).
    */
   semantic_used: boolean;
-  /**
-   * Apps mentioned in candidate hits that aren't connected — only populated
-   * when `include_unconnected: true` was passed. The agent should suggest
-   * `connect_app` for these before calling tools.
-   */
-  suggested_connects: MissingConnection[];
-}
-
-export interface SearchDeps {
-  /** Test whether an app is currently connected. */
-  isConnected: (app: string) => Promise<boolean>;
 }
 
 /**
@@ -94,34 +72,36 @@ export interface SearchDeps {
  * when embeddings are available. Falls back transparently to BM25-only if
  * the embedder can't initialize (unsupported platform, download failure).
  *
+ * Catalog scope: only currently-connected services have catalog rows —
+ * disconnect drops them, connect re-adds. So every hit is by definition
+ * for a callable tool, and there's no `include_unconnected` toggle.
+ *
  * Pipeline:
  *   1. Load the full catalog (BM25 index is built per-call — cheap at our
  *      scale, < 5 ms for ~1k tools).
- *   2. Resolve which apps the result should consider (scope filter).
+ *   2. Apply optional `apps` filter.
  *   3. Try `ensureEmbeddings()` to see if semantic is available this turn.
  *   4. BM25 over the in-scope tools.
  *   5. If semantic: embed query + run cosine, then RRF-fuse the two lists.
  *   6. Apply threshold + slice to top_k.
- *   7. Hydrate hits with description, schema, param summaries, connection.
+ *   7. Hydrate hits with description, schema, param summaries.
  *
  * Never throws on embedder failure — search ALWAYS returns something usable.
  */
 export async function search(
   catalog: Catalog,
   req: SearchRequest,
-  deps: SearchDeps,
 ): Promise<SearchResult> {
   const query = typeof req.query === "string" ? req.query.trim() : "";
   const topK = Math.min(Math.max(req.top_k ?? DEFAULT_TOP_K, 1), MAX_TOP_K);
   const threshold = Math.max(req.threshold ?? DEFAULT_THRESHOLD, 0);
-  const includeUnconnected = req.include_unconnected === true;
   const requestedApps =
     Array.isArray(req.apps) && req.apps.length > 0
       ? new Set(req.apps)
       : null;
 
   if (query === "") {
-    return { hits: [], semantic_used: false, suggested_connects: [] };
+    return { hits: [], semantic_used: false };
   }
 
   // Lazy-prepare embeddings before reading the catalog so the rows we read
@@ -130,18 +110,12 @@ export async function search(
   await prepareEmbeddings(catalog);
 
   const allRows = await catalog.listAll();
-
-  // Scope filter — must happen BEFORE ranking so over-fetch budget isn't
-  // burned on tools the caller can't see.
-  const inScopeRows = await filterToScope(
-    allRows,
-    requestedApps,
-    includeUnconnected,
-    deps.isConnected,
-  );
+  const inScopeRows = requestedApps
+    ? allRows.filter((r) => requestedApps.has(r.service))
+    : allRows;
 
   if (inScopeRows.length === 0) {
-    return { hits: [], semantic_used: false, suggested_connects: [] };
+    return { hits: [], semantic_used: false };
   }
 
   const indexable: ToolIndexable[] = inScopeRows.map((r) => ({
@@ -197,21 +171,11 @@ export async function search(
   const byKey = new Map<string, (typeof allRows)[number]>();
   for (const r of allRows) byKey.set(`${r.service}::${r.toolName}`, r);
 
-  const connectedCache = new Map<string, boolean>();
-  const isConnected = async (app: string): Promise<boolean> => {
-    const cached = connectedCache.get(app);
-    if (cached !== undefined) return cached;
-    const v = await deps.isConnected(app);
-    connectedCache.set(app, v);
-    return v;
-  };
-
   const hits: ToolHit[] = [];
   for (const f of top) {
     const row = byKey.get(`${f.tool.service}::${f.tool.toolName}`);
     if (!row) continue;
     const shape = summarizeSchema(row.inputSchema ?? {});
-    const connected = await isConnected(row.service);
     const hit: ToolHit = {
       app: row.service,
       tool: row.toolName,
@@ -220,45 +184,12 @@ export async function search(
       input_schema: row.inputSchema ?? {},
       required_params: shape.required,
       optional_params: shape.optional,
-      connected,
     };
     if (f.contributions) hit.ranker_contributions = f.contributions;
     hits.push(hit);
   }
 
-  const suggested_connects: MissingConnection[] = [];
-  if (includeUnconnected) {
-    const seen = new Set<string>();
-    for (const h of hits) {
-      if (h.connected) continue;
-      if (seen.has(h.app)) continue;
-      seen.add(h.app);
-      suggested_connects.push({
-        app: h.app,
-        reason: `not connected. Run \`tensor-mcp connect ${h.app}\` first.`,
-      });
-    }
-  }
-
-  return { hits, semantic_used: semanticUsed, suggested_connects };
-}
-
-async function filterToScope(
-  rows: Awaited<ReturnType<Catalog["listAll"]>>,
-  requestedApps: Set<string> | null,
-  includeUnconnected: boolean,
-  isConnected: (app: string) => Promise<boolean>,
-): Promise<Awaited<ReturnType<Catalog["listAll"]>>> {
-  const apps = new Set(rows.map((r) => r.service));
-
-  const eligible = new Set<string>();
-  for (const app of apps) {
-    if (requestedApps && !requestedApps.has(app)) continue;
-    if (!includeUnconnected && !(await isConnected(app))) continue;
-    eligible.add(app);
-  }
-
-  return rows.filter((r) => eligible.has(r.service));
+  return { hits, semantic_used: semanticUsed };
 }
 
 interface SemanticContext {

@@ -9,6 +9,11 @@ import { search } from "../src/mcp/search";
 // Real in-memory catalog (libsql via bun:sqlite). No mocks — the search
 // pipeline is too entangled with the BM25 + catalog round-trip to give
 // mocks any real signal.
+//
+// Note on scope: the catalog only ever holds rows for currently-connected
+// services (disconnect drops them, connect re-ingests). So tests just
+// populate the catalog and search; there's no separate "is connected"
+// callback to pass in.
 
 const TOOLS: Array<Omit<CatalogTool, "versionHash" | "indexedAt">> = [
   {
@@ -55,6 +60,9 @@ describe("search()", () => {
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "tmcp-search-"));
     prevEmbeddingsDir = process.env.TENSOR_MCP_EMBEDDINGS_DIR;
+    // Point cache at an empty temp dir — `ensureEmbeddings` is now sync
+    // cache-probe only (no network, no download), so an empty dir is
+    // enough to keep these tests deterministically BM25-only.
     process.env.TENSOR_MCP_EMBEDDINGS_DIR = join(tempDir, "embeddings");
     resetEnsureEmbeddingsCache();
     catalog = new Catalog({ path: join(tempDir, "catalog.sqlite") });
@@ -82,30 +90,19 @@ describe("search()", () => {
     resetEnsureEmbeddingsCache();
   });
 
-  const isConnectedFrom = (apps: string[]) => {
-    const set = new Set(apps);
-    return async (app: string) => set.has(app);
-  };
-
-  it("defaults to connected-only scope: returns nothing for unconnected apps", async () => {
-    const result = await search(
-      catalog,
-      { query: "linear create" },
-      { isConnected: isConnectedFrom([]) },
-    );
+  it("empty catalog yields no hits (new connection drops all rows)", async () => {
+    await catalog.dropService("linear");
+    await catalog.dropService("slack");
+    await catalog.dropService("jira");
+    const result = await search(catalog, { query: "linear create" });
     expect(result.hits).toEqual([]);
   });
 
-  it("returns top-3 fused hits with hydrated schemas for connected apps", async () => {
-    const result = await search(
-      catalog,
-      { query: "create issue" },
-      { isConnected: isConnectedFrom(["linear", "jira", "slack"]) },
-    );
+  it("returns top-3 fused hits with hydrated schemas", async () => {
+    const result = await search(catalog, { query: "create issue" });
     expect(result.hits.length).toBeGreaterThan(0);
     expect(result.hits.length).toBeLessThanOrEqual(3);
     for (const hit of result.hits) {
-      expect(hit.connected).toBe(true);
       expect(typeof hit.app).toBe("string");
       expect(typeof hit.tool).toBe("string");
       expect(hit.score).toBeGreaterThanOrEqual(0);
@@ -116,78 +113,55 @@ describe("search()", () => {
   });
 
   it("respects an explicit apps filter", async () => {
-    const result = await search(
-      catalog,
-      { query: "create", apps: ["slack"] },
-      { isConnected: isConnectedFrom(["linear", "slack"]) },
-    );
+    const result = await search(catalog, {
+      query: "create",
+      apps: ["slack"],
+    });
     for (const hit of result.hits) {
       expect(hit.app).toBe("slack");
     }
   });
 
-  it("include_unconnected exposes hits + suggested_connects for missing apps", async () => {
-    const result = await search(
-      catalog,
-      { query: "slack", include_unconnected: true },
-      { isConnected: isConnectedFrom(["linear"]) },
-    );
-    const slackHits = result.hits.filter((h) => h.app === "slack");
-    expect(slackHits.length).toBeGreaterThan(0);
-    for (const hit of slackHits) {
-      expect(hit.connected).toBe(false);
+  it("dropService removes a service's tools from search scope", async () => {
+    await catalog.dropService("slack");
+    const result = await search(catalog, {
+      query: "slack message",
+      threshold: 0,
+      top_k: 20,
+    });
+    for (const hit of result.hits) {
+      expect(hit.app).not.toBe("slack");
     }
-    expect(result.suggested_connects.length).toBeGreaterThan(0);
-    expect(result.suggested_connects[0]?.app).toBe("slack");
-    expect(result.suggested_connects[0]?.reason).toContain(
-      "tensor-mcp connect slack",
-    );
   });
 
   it("clamps top_k to [1, 50]", async () => {
-    const tiny = await search(
-      catalog,
-      { query: "create", top_k: 1 },
-      { isConnected: isConnectedFrom(["linear", "slack", "jira"]) },
-    );
+    const tiny = await search(catalog, { query: "create", top_k: 1 });
     expect(tiny.hits.length).toBeLessThanOrEqual(1);
 
-    const zero = await search(
-      catalog,
-      { query: "create", top_k: 0 },
-      { isConnected: isConnectedFrom(["linear", "slack", "jira"]) },
-    );
+    const zero = await search(catalog, { query: "create", top_k: 0 });
     // 0 clamps to min 1 — caller should still get a top hit.
     expect(zero.hits.length).toBeLessThanOrEqual(1);
   });
 
   it("threshold=0 returns all matching hits regardless of confidence", async () => {
-    const result = await search(
-      catalog,
-      { query: "create", top_k: 50, threshold: 0 },
-      { isConnected: isConnectedFrom(["linear", "slack", "jira"]) },
-    );
+    const result = await search(catalog, {
+      query: "create",
+      top_k: 50,
+      threshold: 0,
+    });
     // With threshold=0, multi-token query "create" should hit several tools.
     expect(result.hits.length).toBeGreaterThan(0);
   });
 
   it("empty query returns no hits", async () => {
-    const result = await search(
-      catalog,
-      { query: "" },
-      { isConnected: isConnectedFrom(["linear", "slack"]) },
-    );
+    const result = await search(catalog, { query: "" });
     expect(result.hits).toEqual([]);
   });
 
   it("semantic_used is false when no embeddings have been computed", async () => {
     // Catalog has no embedding column populated — search must fall back to
     // BM25 transparently rather than throwing.
-    const result = await search(
-      catalog,
-      { query: "create issue" },
-      { isConnected: isConnectedFrom(["linear"]) },
-    );
+    const result = await search(catalog, { query: "create issue" });
     expect(result.semantic_used).toBe(false);
   });
 });
