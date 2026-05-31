@@ -5,38 +5,25 @@ on:
     tags:
       - 'v*.*.*'
 
+# Single Linux runner cross-compiles every supported target. Bun resolves
+# native-binding `require()` paths (e.g. onnxruntime-node's per-arch
+# napi-v3/<platform>/<arch>/*.node) using the `--target=` flag, so a
+# cross-compiled binary picks the correct native binding. Verified
+# empirically against darwin-arm64/x64, linux-x64/arm64, windows-x64 from
+# a darwin-arm64 host before adopting this layout.
+#
+# Why not the matrix-of-5-runners pattern that's idiomatic for native CI?
+# tensor-mcp no longer embeds platform-specific dylibs at build time — the
+# onnxruntime dylib + model are downloaded on first use from the
+# `embeddings-v1` release. Every target is a pure cross-compile from
+# identical sources, so any host works.
+
 jobs:
-  build:
-    name: build (${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: darwin-arm64
-            runner: macos-14
-            artifact: tensor-mcp-darwin-arm64
-            continue-on-error: false
-          - target: darwin-x64
-            runner: macos-13
-            artifact: tensor-mcp-darwin-x64
-            continue-on-error: false
-          - target: linux-x64
-            runner: ubuntu-24.04
-            artifact: tensor-mcp-linux-x64
-            continue-on-error: false
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-            artifact: tensor-mcp-linux-arm64
-            continue-on-error: false
-          - target: windows-x64
-            runner: windows-latest
-            artifact: tensor-mcp-windows-x64.exe
-            # Windows ships a BM25-only binary (no onnxruntime native binding).
-            # `bun --compile` on win32 has occasionally regressed (Bun #18079);
-            # don't fail the whole release if windows-latest hiccups.
-            continue-on-error: true
-    runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ matrix.continue-on-error }}
+  release:
+    name: build + release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,50 +37,24 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ matrix.runner }}-${{ hashFiles('bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            bun-${{ matrix.runner }}-
+            bun-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build ${{ matrix.target }}
-        run: bun run scripts/build.ts --target=${{ matrix.target }}
+      - name: Build every target
+        run: bun run scripts/build.ts --all
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
-          if-no-files-found: error
-          retention-days: 7
-
-  release:
-    name: release
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Stage release files
-        run: |
-          set -euo pipefail
-          mkdir -p release
-          # actions/download-artifact@v4 puts each upload in its own subdir.
-          find artifacts -type f -name 'tensor-mcp-*' -exec cp {} release/ \;
-          ls -la release/
-
-      - name: Compute combined SHA256SUMS.txt
-        working-directory: release
+      - name: Combined SHA256SUMS.txt
+        working-directory: dist
         run: |
           set -euo pipefail
           : > SHA256SUMS.txt
           for f in tensor-mcp-*; do
+            # Skip the host-symlink convenience file.
+            if [ -L "$f" ]; then continue; fi
             sha256sum "$f" >> SHA256SUMS.txt
           done
           cat SHA256SUMS.txt
@@ -113,8 +74,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/tensor-mcp-*
-            release/SHA256SUMS.txt
+            dist/tensor-mcp-darwin-arm64
+            dist/tensor-mcp-darwin-x64
+            dist/tensor-mcp-linux-x64
+            dist/tensor-mcp-linux-arm64
+            dist/tensor-mcp-windows-x64.exe
+            dist/SHA256SUMS.txt
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
           generate_release_notes: true
