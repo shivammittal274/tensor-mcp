@@ -34,6 +34,7 @@ export async function callCmd(
         tokenStore,
         spawnPool: pool,
         getSpawn: (s) => (s === service ? def.spawn : undefined),
+        getRemote: (s) => (s === service ? def.remote : undefined),
       },
     );
 

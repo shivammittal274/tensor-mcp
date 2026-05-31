@@ -41,6 +41,7 @@ import {
   mcpDcrAuth,
   noAuth,
   patAuth,
+  remoteMcp,
   type Service,
   staticOAuthAuth,
 } from "@tensor-mcp/core";
@@ -120,6 +121,11 @@ export const SERVICES: Record<string, Service> = {
   // DCR — vendor-hosted MCP server with Dynamic Client Registration
   // ============================================================
 
+  // ─── DCR-hosted-MCP vendors ─────────────────────────────────────────────
+  // The DCR token issued by mcp.<vendor>.com is scoped only to that hosted
+  // MCP, NOT to the vendor's regular REST/GraphQL API. So we skip the
+  // local Klavis subprocess and talk to the vendor's hosted MCP directly,
+  // attaching the token as a Bearer header per request.
   linear: defineService({
     id: "linear",
     displayName: "Linear",
@@ -127,14 +133,14 @@ export const SERVICES: Record<string, Service> = {
       mcpServerUrl: "https://mcp.linear.app",
       scope: "read write",
     }),
-    spawn: klavisPython("vendored/linear"),
+    remote: remoteMcp("https://mcp.linear.app/mcp"),
   }),
 
   notion: defineService({
     id: "notion",
     displayName: "Notion",
     auth: mcpDcrAuth({ mcpServerUrl: "https://mcp.notion.com" }),
-    spawn: klavisPython("vendored/notion"),
+    remote: remoteMcp("https://mcp.notion.com/mcp"),
   }),
 
   jira: defineService({
@@ -144,7 +150,7 @@ export const SERVICES: Record<string, Service> = {
       mcpServerUrl: "https://mcp.atlassian.com",
       scope: "read:jira-work write:jira-work read:jira-user",
     }),
-    spawn: klavisTypescript("vendored/jira"),
+    remote: remoteMcp("https://mcp.atlassian.com/v1/sse"),
   }),
 
   confluence: defineService({
@@ -155,21 +161,21 @@ export const SERVICES: Record<string, Service> = {
       scope:
         "read:confluence-content.all write:confluence-content read:confluence-user",
     }),
-    spawn: klavisPython("vendored/confluence"),
+    remote: remoteMcp("https://mcp.atlassian.com/v1/sse"),
   }),
 
   asana: defineService({
     id: "asana",
     displayName: "Asana",
     auth: mcpDcrAuth({ mcpServerUrl: "https://mcp.asana.com" }),
-    spawn: klavisPython("vendored/asana"),
+    remote: remoteMcp("https://mcp.asana.com/sse"),
   }),
 
   cal_com: defineService({
     id: "cal_com",
     displayName: "Cal.com",
     auth: mcpDcrAuth({ mcpServerUrl: "https://mcp.cal.com" }),
-    spawn: klavisPython("vendored/cal_com"),
+    remote: remoteMcp("https://mcp.cal.com/mcp"),
   }),
 
   // ============================================================

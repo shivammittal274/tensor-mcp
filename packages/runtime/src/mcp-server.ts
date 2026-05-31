@@ -222,6 +222,7 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
             tokenStore,
             spawnPool: pool,
             getSpawn: (s) => config.services[s]?.spawn,
+            getRemote: (s) => config.services[s]?.remote,
           },
         );
         return { content: result.content, isError: result.isError };

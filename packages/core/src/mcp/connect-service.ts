@@ -115,6 +115,7 @@ export async function connectService(
   const tools_indexed = await ingestService(deps.catalog, {
     service: req.service,
     spawn: def.spawn,
+    remote: def.remote,
     token: bundle,
     tensorMcpRoot: deps.tensorMcpRoot,
   });

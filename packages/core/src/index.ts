@@ -13,6 +13,11 @@ export type { AuthorizationServerMetadata } from "@modelcontextprotocol/sdk/shar
 export * from "./catalog";
 export * from "./mcp";
 export * from "./search";
+export {
+  defaultAuthHeaders,
+  remoteMcp,
+  type RemoteMcpConfig,
+} from "./remote-mcp";
 export { defineService, type Service } from "./service";
 // Re-exported sub-modules for convenience
 export * from "./stores";

@@ -1,9 +1,11 @@
 import type { AuthStrategy } from "./auth/types";
+import type { RemoteMcpConfig } from "./remote-mcp";
 import type { SpawnConfig } from "./subprocess/types";
 
 /**
  * A connectable third-party service. Every service is fully declared by a
- * single entry in `packages/services/index.ts` — auth strategy + spawn config.
+ * single entry in `packages/services/index.ts`: an auth strategy + an
+ * execution descriptor (either local-subprocess `spawn` or hosted-MCP `remote`).
  */
 export interface Service {
   /** URL-safe slug used as the connection key (e.g. "linear", "github"). */
@@ -16,18 +18,34 @@ export interface Service {
   auth: AuthStrategy;
 
   /**
-   * How to run this service's subprocess. Plain data — `vendorDir + command
-   * + envInject + forgeAuthData`. Use convention helpers like `klavisPython`
-   * for the common cases, or write the config inline for quirks (e.g. a
-   * pre-compiled Go binary with a custom command).
+   * Local subprocess execution — vendorDir + command + envInject +
+   * forgeAuthData. Mutually exclusive with `remote`. Use convention helpers
+   * like `klavisPython` for the common cases.
    */
-  spawn: SpawnConfig;
+  spawn?: SpawnConfig;
+
+  /**
+   * Hosted-MCP execution — connect a Streamable HTTP MCP client straight
+   * to the vendor's URL with our stored token as a Bearer header. No local
+   * subprocess. Mutually exclusive with `spawn`. Use `remoteMcp(url)` to
+   * build with sensible defaults.
+   */
+  remote?: RemoteMcpConfig;
 }
 
 /**
  * Identity helper for service files — provides type inference and a single
- * import surface in `packages/services/index.ts`.
+ * import surface in `packages/services/index.ts`. Enforces exactly-one of
+ * `spawn` / `remote` at runtime (TypeScript can't model "exclusive or"
+ * cleanly without inflating the call site).
  */
 export function defineService(s: Service): Service {
+  const hasSpawn = s.spawn != null;
+  const hasRemote = s.remote != null;
+  if (hasSpawn === hasRemote) {
+    throw new Error(
+      `defineService('${s.id}'): exactly one of 'spawn' or 'remote' must be set`,
+    );
+  }
   return s;
 }

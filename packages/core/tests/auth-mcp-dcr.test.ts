@@ -119,15 +119,22 @@ describe("mcpDcrAuth", () => {
     expect(capturedCallbackUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
   });
 
-  test("first call returning AUTHORIZED is treated as protocol error", async () => {
+  test("first call returning AUTHORIZED short-circuits to the persisted bundle", async () => {
+    // Re-running `connect` on an already-connected service: SDK's auth()
+    // sees a still-valid (or refreshed) token in the vault and returns
+    // AUTHORIZED immediately. We honor that and skip the browser dance.
     const { tokenStore, oauthClientStore } = makeOpts();
+    await tokenStore.set("linear", { access_token: "tok-existing" });
     const strategy = mcpDcrAuth({ mcpServerUrl: "https://mcp.linear.app" });
 
     sdkAuthImpl = async () => "AUTHORIZED";
 
-    await expect(
-      strategy.connect({ serviceId: "linear", tokenStore, oauthClientStore }),
-    ).rejects.toThrow(/expected REDIRECT/);
+    const bundle = await strategy.connect({
+      serviceId: "linear",
+      tokenStore,
+      oauthClientStore,
+    });
+    expect(bundle.access_token).toBe("tok-existing");
   });
 
   test("CSRF: callback with wrong state rejects awaitCode and strategy throws", async () => {

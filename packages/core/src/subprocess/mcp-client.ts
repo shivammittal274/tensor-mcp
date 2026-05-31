@@ -68,19 +68,23 @@ function resultLooksUnauthorized(result: McpToolResult): boolean {
 }
 
 /**
- * Connect an MCP client to a spawned Klavis service.
+ * Connect an MCP client to a Streamable HTTP endpoint.
  *
- * Establishes session via Streamable HTTP transport. Returns handle for
- * listTools / callTool / close. Caller owns lifecycle.
+ * Used for both spawned-Klavis services (loopback URL, no headers) and
+ * vendor-hosted MCPs (e.g. https://mcp.linear.app/mcp with a Bearer token
+ * carrying the DCR-issued access token). Returns handle for listTools /
+ * callTool / close. Caller owns lifecycle.
  *
- * The wrapped `callTool` detects 401/Unauthorized responses from the
- * spawned server and throws `UnauthorizedToolCallError` so upper layers
- * can trigger a token refresh.
+ * The wrapped `callTool` detects 401/Unauthorized responses and throws
+ * `UnauthorizedToolCallError` so upper layers can trigger a token refresh.
  */
 export async function connectMcpClient(
   mcpUrl: string,
+  opts: { headers?: Record<string, string> } = {},
 ): Promise<McpClientHandle> {
-  const transport = new StreamableHTTPClientTransport(new URL(mcpUrl));
+  const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
+    requestInit: opts.headers ? { headers: opts.headers } : undefined,
+  });
   const client = new Client(
     { name: "tensor-mcp", version: "0.1.0" },
     { capabilities: {} },

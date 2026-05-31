@@ -53,6 +53,17 @@ export function mcpDcrAuth(config: McpDcrAuthConfig): AuthStrategy {
           serverUrl: config.mcpServerUrl,
           scope: config.scope,
         });
+
+        // r1 === "AUTHORIZED" means a still-valid token (or refreshed one)
+        // was already in the vault — `connect` is being re-run on an
+        // already-connected service. Skip the browser/callback dance.
+        if (r1 === "AUTHORIZED") {
+          const bundle = await opts.tokenStore.get(opts.serviceId);
+          if (!bundle) {
+            throw new Error("auth reported AUTHORIZED but no token persisted");
+          }
+          return bundle;
+        }
         if (r1 !== "REDIRECT") {
           throw new Error(`expected REDIRECT, got ${r1}`);
         }

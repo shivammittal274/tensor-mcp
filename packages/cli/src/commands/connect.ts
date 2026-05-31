@@ -54,6 +54,7 @@ export async function connectCmd(service: string): Promise<number> {
         const n = await ingestService(catalog, {
           service,
           spawn: def.spawn,
+          remote: def.remote,
           token: bundle,
         });
         process.stdout.write(`Indexed ${n} ${service} tools.\n`);

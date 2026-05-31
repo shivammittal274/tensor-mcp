@@ -1,3 +1,4 @@
+import { defaultAuthHeaders, type RemoteMcpConfig } from "../remote-mcp";
 import type { TokenBundle } from "../stores/types";
 import { connectMcpClient } from "../subprocess/mcp-client";
 import { spawnService } from "../subprocess/spawn-service";
@@ -6,7 +7,10 @@ import type { Catalog, CatalogTool } from "./catalog";
 
 export interface IngestServiceConfig {
   service: string;
-  spawn: SpawnConfig;
+  /** Local-subprocess execution. Mutually exclusive with `remote`. */
+  spawn?: SpawnConfig;
+  /** Hosted-MCP execution. Mutually exclusive with `spawn`. */
+  remote?: RemoteMcpConfig;
   token?: TokenBundle;
   readinessTimeoutMs?: number;
   tensorMcpRoot?: string;
@@ -31,6 +35,22 @@ export async function ingestService(
     access_token: "ingest_only_dummy",
   };
 
+  if (config.remote) {
+    const headers = (config.remote.authHeaders ?? defaultAuthHeaders)(token);
+    const client = await connectMcpClient(config.remote.mcpUrl, { headers });
+    try {
+      return await persistTools(catalog, config.service, client);
+    } finally {
+      await client.close();
+    }
+  }
+
+  if (!config.spawn) {
+    throw new Error(
+      `ingestService('${config.service}'): exactly one of 'spawn' or 'remote' must be set`,
+    );
+  }
+
   const handle = await spawnService(config.service, config.spawn, {
     token,
     readinessTimeoutMs: config.readinessTimeoutMs,
@@ -39,22 +59,34 @@ export async function ingestService(
   try {
     const client = await connectMcpClient(handle.mcpUrl);
     try {
-      const tools = await client.listTools();
-      const now = Date.now();
-      const rows: CatalogTool[] = tools.map((t) => ({
-        service: config.service,
-        toolName: t.name,
-        description: t.description ?? "",
-        inputSchema: t.inputSchema,
-        versionHash: versionHash(config.service, t.name, t.inputSchema),
-        indexedAt: now,
-      }));
-      await catalog.upsertService(config.service, rows);
-      return rows.length;
+      return await persistTools(catalog, config.service, client);
     } finally {
       await client.close();
     }
   } finally {
     await handle.kill();
   }
+}
+
+async function persistTools(
+  catalog: Catalog,
+  service: string,
+  client: {
+    listTools: () => Promise<
+      Array<{ name: string; description?: string; inputSchema: unknown }>
+    >;
+  },
+): Promise<number> {
+  const tools = await client.listTools();
+  const now = Date.now();
+  const rows: CatalogTool[] = tools.map((t) => ({
+    service,
+    toolName: t.name,
+    description: t.description ?? "",
+    inputSchema: t.inputSchema,
+    versionHash: versionHash(service, t.name, t.inputSchema),
+    indexedAt: now,
+  }));
+  await catalog.upsertService(service, rows);
+  return rows.length;
 }
