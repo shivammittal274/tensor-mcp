@@ -77,6 +77,22 @@ function summarizeProperty(
   return summary;
 }
 
+/**
+ * Flatten a schema's params into one searchable string — one line per param,
+ * `name (enum|values) — description` shape. Fed to both BM25 and the
+ * sentence embedder so queries like "create issue with assignees and labels"
+ * surface tools whose schemas actually expose those params.
+ */
+export function buildParamText(schema: unknown): string {
+  const shape = summarizeSchema(schema);
+  const lines: string[] = [];
+  for (const p of [...shape.required, ...shape.optional]) {
+    const head = p.enum ? `${p.name} (${p.enum.join("|")})` : p.name;
+    lines.push(p.description ? `${head} — ${p.description}` : head);
+  }
+  return lines.join("\n");
+}
+
 function describeType(prop: RawProperty): string {
   const t = Array.isArray(prop.type)
     ? prop.type.filter((x) => x !== "null").join("|")

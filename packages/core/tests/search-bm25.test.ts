@@ -5,8 +5,9 @@ function makeTool(
   service: string,
   toolName: string,
   description: string,
+  paramText = "",
 ): ToolIndexable {
-  return { service, toolName, description };
+  return { service, toolName, description, paramText };
 }
 
 const LINEAR_TOOLS: ToolIndexable[] = [

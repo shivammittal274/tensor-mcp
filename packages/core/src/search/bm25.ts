@@ -28,6 +28,12 @@ export interface ToolIndexable {
   service: string;
   toolName: string;
   description: string;
+  /**
+   * Flattened "name — description" lines for each schema param. Built by
+   * `buildParamText(schema)` in `search/schema-summary.ts`. Empty string
+   * means "no schema info to index" — the field is skipped.
+   */
+  paramText: string;
 }
 
 export interface SearchHit<T extends ToolIndexable> {
@@ -55,6 +61,7 @@ const FIELD_WEIGHTS = {
   service: 30,
   operation: 30,
   description: 30,
+  params: 30,
 } as const;
 
 type FieldKey = keyof typeof FIELD_WEIGHTS;
@@ -103,6 +110,7 @@ export class BM25Search<T extends ToolIndexable> {
         service: tool.service,
         operation: tool.toolName,
         description: tool.description,
+        params: tool.paramText,
       };
       for (const [key, value] of Object.entries(fields) as Array<
         [FieldKey, string]

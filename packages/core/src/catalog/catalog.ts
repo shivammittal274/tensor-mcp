@@ -180,6 +180,27 @@ export class Catalog {
     return rowToTool(row);
   }
 
+  async getMeta(key: string): Promise<string | null> {
+    const db = this.ensureOpen();
+    const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
+      | { value: string }
+      | null;
+    return row?.value ?? null;
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    const db = this.ensureOpen();
+    db.prepare(
+      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(key, value);
+  }
+
+  /** Drop all stored embeddings — forces a full re-embed on next connect. */
+  async clearAllEmbeddings(): Promise<void> {
+    const db = this.ensureOpen();
+    db.run("UPDATE tools SET embedding = NULL");
+  }
+
   /** Tools missing an embedding (for backfill on first semantic search). */
   async listNeedingEmbedding(): Promise<CatalogTool[]> {
     const db = this.ensureOpen();

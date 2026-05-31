@@ -3,7 +3,11 @@ import { ensureEmbeddings } from "../embeddings/ensure";
 import { getEmbedder } from "../embeddings/embedder";
 import { BM25Search, type ToolIndexable } from "../search/bm25";
 import { reciprocalRankFusion } from "../search/rrf";
-import { type ParamSummary, summarizeSchema } from "../search/schema-summary";
+import {
+  buildParamText,
+  type ParamSummary,
+  summarizeSchema,
+} from "../search/schema-summary";
 import { SemanticSearch } from "../search/semantic";
 
 // Tunables — every CLI/MCP knob that affects the search pipeline lives here.
@@ -136,6 +140,7 @@ export async function search(
     service: r.service,
     toolName: r.toolName,
     description: r.description,
+    paramText: buildParamText(r.inputSchema ?? {}),
   }));
   const bm25 = new BM25Search(indexable);
 
