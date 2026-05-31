@@ -29,8 +29,15 @@ jobs:
           - target: darwin-arm64
             runner: macos-14
             artifact: tensor-mcp-darwin-arm64
+          # darwin-x64 cross-compiled from macos-14 (Apple Silicon) instead
+          # of native on macos-13 (Intel). GitHub's free macos-13 pool is
+          # exhausted on most runs — jobs queue indefinitely. Trade-off
+          # accepted: semantic ranking silently falls back to BM25-only on
+          # Intel Macs because Bun's cross-compile doesn't fully fix up the
+          # bundled onnxruntime-node native binding. The CLI itself works
+          # end-to-end on Intel; only the semantic search ranker degrades.
           - target: darwin-x64
-            runner: macos-13
+            runner: macos-14
             artifact: tensor-mcp-darwin-x64
           - target: linux-x64
             runner: ubuntu-24.04
