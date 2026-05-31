@@ -41,6 +41,7 @@ import {
 } from "./auth";
 import type { AuthorizationServerMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { defineService, type Service } from "./defineService";
+import { slack as slackPiece } from "./services/local/slack";
 import { remoteMcp } from "./transports/remote";
 import { klavisPython, klavisTypescript } from "./transports/klavis";
 
@@ -196,12 +197,7 @@ export const SERVICES: Record<string, Service> = {
       description:
         "Opens a browser to install the Slack app into your workspace.",
     }),
-    spawn: klavisPython("vendored/slack", {
-      forgeAuthData: (b) => ({
-        access_token: b.access_token,
-        authed_user: { access_token: b.metadata?.slack_user_token ?? "" },
-      }),
-    }),
+    activepieces: { piece: slackPiece },
   }),
 
   gmail: defineService({

@@ -125,6 +125,7 @@ export async function connectApp(
     service: req.app,
     spawn: def.spawn,
     remote: def.remote,
+    activepieces: def.activepieces,
     token: bundle,
     tensorMcpRoot: deps.tensorMcpRoot,
   });

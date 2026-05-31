@@ -46,6 +46,7 @@ export async function executeCmd(
         spawnPool: pool,
         getSpawn: (a) => (a === app ? def.spawn : undefined),
         getRemote: (a) => (a === app ? def.remote : undefined),
+        getActivepieces: (a) => (a === app ? def.activepieces : undefined),
         tryRefresh: async (a) => {
           if (a !== app) throw new Error(`refresh not wired for '${a}'`);
           return await def.auth.connect({

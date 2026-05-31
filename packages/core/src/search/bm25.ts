@@ -1,5 +1,5 @@
 // wink-porter2-stemmer ships no .d.ts and has no @types package upstream.
-// @ts-expect-error — declared as a typed re-export below.
+// @ts-ignore — declared as a typed re-export below.
 import stemRaw from "wink-porter2-stemmer";
 const stem = stemRaw as (token: string) => string;
 

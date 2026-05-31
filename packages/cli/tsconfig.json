@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["bun"]
+    "types": ["bun"],
+    // The CLI transitively imports `@tensor-mcp/core`'s lifted Activepieces
+    // sources. See `packages/core/tsconfig.json` — same rationale.
+    "strict": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

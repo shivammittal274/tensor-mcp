@@ -1,3 +1,5 @@
+import type { ActivepiecesConfig } from "../defineService";
+import { runAction } from "../services/adapt/activepieces/runAction";
 import {
   connectionIdFor,
   type KeyValueStore,
@@ -33,6 +35,8 @@ export interface ExecuteToolDeps {
   getSpawn: (app: string) => SpawnConfig | undefined;
   /** Returns the app's hosted-MCP descriptor, if any. */
   getRemote?: (app: string) => RemoteMcpConfig | undefined;
+  /** Returns the app's Activepieces piece descriptor, if any. */
+  getActivepieces?: (app: string) => ActivepiecesConfig | undefined;
   /**
    * Silently refresh an OAuth token (uses the SDK's refresh-token grant).
    * Returns the new bundle. Should throw if refresh fails — caller surfaces
@@ -50,17 +54,12 @@ export interface ExecuteToolDeps {
  *  - `spawn`: pool a Klavis-style subprocess (started on demand), open a
  *    short-lived MCP client to its loopback URL, fire the call, close.
  *  - `remote`: open a short-lived MCP client straight to the vendor's
- *    hosted MCP URL with the stored token as a Bearer header
- *    (override via `RemoteMcpConfig.authHeaders`).
+ *    hosted MCP URL with the stored token as a Bearer header.
+ *  - `activepieces`: dispatch in-process to the lifted piece's action
+ *    `run(ctx)`. No MCP hop at all.
  *
  * On a 401 from a `remote` app, silently refresh the OAuth token via
- * `tryRefresh` and retry once. The 401 may surface during `initialize`
- * (raw transport error) OR during `tools/call` (wrapped as
- * `UnauthorizedToolCallError`); both routes are handled.
- *
- * `spawn` apps don't refresh today — their token is baked into the
- * subprocess's `AUTH_DATA` env, so refresh would require kill+respawn.
- * Tracked separately (see SpawnPool stale-token invalidation).
+ * `tryRefresh` and retry once.
  */
 export async function executeTool(
   req: ExecuteToolRequest,
@@ -70,9 +69,10 @@ export async function executeTool(
     throw new Error("execute requires `app` and `tool` arguments");
   }
 
-  const remote = deps.getRemote?.(req.app);
-  const spawn = remote ? undefined : deps.getSpawn(req.app);
-  if (!remote && !spawn) {
+  const activepieces = deps.getActivepieces?.(req.app);
+  const remote = activepieces ? undefined : deps.getRemote?.(req.app);
+  const spawn = activepieces || remote ? undefined : deps.getSpawn(req.app);
+  if (!remote && !spawn && !activepieces) {
     throw new Error(`unknown app '${req.app}'`);
   }
 
@@ -84,6 +84,14 @@ export async function executeTool(
   const connect = deps.connectClient ?? connectMcpClient;
 
   const attempt = async (token: TokenBundle): Promise<ExecuteToolResult> => {
+    if (activepieces) {
+      return await runAction({
+        piece: activepieces.piece,
+        toolName: req.tool,
+        input: req.input ?? {},
+        token,
+      });
+    }
     let mcpUrl: string;
     let headers: Record<string, string> | undefined;
     let handle: SpawnedProcess | undefined;

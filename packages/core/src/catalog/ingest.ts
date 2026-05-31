@@ -1,3 +1,6 @@
+import type { ActivepiecesConfig } from "../defineService";
+import { actionToJsonSchema } from "../services/adapt/activepieces/propsToJsonSchema";
+import { listToolsForPiece } from "../services/adapt/activepieces/runAction";
 import { defaultAuthHeaders, type RemoteMcpConfig } from "../transports/remote";
 import type { TokenBundle } from "../stores/types";
 import { connectMcpClient } from "../transports/stdio";
@@ -7,10 +10,12 @@ import type { Catalog, CatalogTool } from "./catalog";
 
 export interface IngestServiceConfig {
   service: string;
-  /** Local-subprocess execution. Mutually exclusive with `remote`. */
+  /** Local-subprocess execution. */
   spawn?: SpawnConfig;
-  /** Hosted-MCP execution. Mutually exclusive with `spawn`. */
+  /** Hosted-MCP execution. */
   remote?: RemoteMcpConfig;
+  /** Activepieces in-process dispatch. */
+  activepieces?: ActivepiecesConfig;
   token?: TokenBundle;
   readinessTimeoutMs?: number;
   tensorMcpRoot?: string;
@@ -35,6 +40,24 @@ export async function ingestService(
     access_token: "ingest_only_dummy",
   };
 
+  if (config.activepieces) {
+    const actions = listToolsForPiece(config.activepieces.piece);
+    const now = Date.now();
+    const rows: CatalogTool[] = actions.map((a) => {
+      const inputSchema = actionToJsonSchema(a);
+      return {
+        service: config.service,
+        toolName: a.name,
+        description: a.description,
+        inputSchema,
+        versionHash: versionHash(config.service, a.name, inputSchema),
+        indexedAt: now,
+      };
+    });
+    await catalog.upsertService(config.service, rows);
+    return rows.length;
+  }
+
   if (config.remote) {
     const headers = (config.remote.authHeaders ?? defaultAuthHeaders)(token);
     const client = await connectMcpClient(config.remote.mcpUrl, { headers });
@@ -47,7 +70,7 @@ export async function ingestService(
 
   if (!config.spawn) {
     throw new Error(
-      `ingestService('${config.service}'): exactly one of 'spawn' or 'remote' must be set`,
+      `ingestService('${config.service}'): exactly one of 'spawn' / 'remote' / 'activepieces' must be set`,
     );
   }
 
