@@ -4,8 +4,8 @@ import type { KeyValueStore, TokenBundle } from "../src/stores/types";
 import type {
   McpClientHandle,
   McpToolResult,
-} from "../src/transports/stdio";
-import type { SpawnConfig, SpawnedProcess } from "../src/transports/types";
+  RemoteMcpConfig,
+} from "../src/transports/remote";
 
 class FakeTokenStore implements Pick<KeyValueStore<TokenBundle>, "get"> {
   private readonly map = new Map<string, TokenBundle>();
@@ -18,39 +18,13 @@ class FakeTokenStore implements Pick<KeyValueStore<TokenBundle>, "get"> {
   }
 }
 
-function fakeSpawnConfig(): SpawnConfig {
-  return {
-    vendorDir: "/tmp/fake",
-    command: ["echo", "noop"],
-  };
-}
-
-function fakeSpawnPool(
-  handle: SpawnedProcess,
-): Pick<ExecuteToolDeps["spawnPool"], "ensure"> {
-  return {
-    ensure: async (
-      _service: string,
-      _spawn: SpawnConfig,
-      _token: TokenBundle,
-    ) => handle,
-  };
-}
-
-function fakeHandle(service: string): SpawnedProcess {
-  return {
-    service,
-    port: 12345,
-    pid: 999,
-    mcpUrl: `http://127.0.0.1:12345/mcp`,
-    exited: new Promise<number>(() => {}),
-    kill: async () => {},
-  };
-}
-
 interface ClientLog {
   closed: boolean;
   calls: Array<{ name: string; args: Record<string, unknown> }>;
+}
+
+function fakeRemote(url = "https://fake.example.com/mcp"): RemoteMcpConfig {
+  return { mcpUrl: url };
 }
 
 function fakeConnect(
@@ -76,8 +50,7 @@ describe("executeTool", () => {
     const log: ClientLog = { closed: false, calls: [] };
     const deps: ExecuteToolDeps = {
       tokenStore: new FakeTokenStore(),
-      spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getSpawn: () => undefined,
+      getRemote: () => undefined,
       connectClient: fakeConnect({ content: [] }, log),
     };
     await expect(
@@ -89,8 +62,7 @@ describe("executeTool", () => {
     const log: ClientLog = { closed: false, calls: [] };
     const deps: ExecuteToolDeps = {
       tokenStore: new FakeTokenStore(),
-      spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getSpawn: () => fakeSpawnConfig(),
+      getRemote: (a) => (a === "linear" ? fakeRemote() : undefined),
       connectClient: fakeConnect({ content: [] }, log),
     };
     await expect(
@@ -107,19 +79,14 @@ describe("executeTool", () => {
       tokenStore: new FakeTokenStore({
         "linear:default": { access_token: "tok-abc" },
       }),
-      spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getSpawn: () => fakeSpawnConfig(),
+      getRemote: (a) => (a === "linear" ? fakeRemote() : undefined),
       connectClient: fakeConnect(expected, log),
     };
     const result = await executeTool(
-      {
-        app: "linear",
-        tool: "linear_create_issue",
-        input: { title: "Hello" },
-      },
+      { app: "linear", tool: "linear_create_issue", input: { title: "Hello" } },
       deps,
     );
-    expect(result).toEqual(expected);
+    expect(result.content).toEqual(expected.content);
     expect(log.calls).toHaveLength(1);
     expect(log.calls[0]?.name).toBe("linear_create_issue");
     expect(log.calls[0]?.args).toEqual({ title: "Hello" });
@@ -136,8 +103,7 @@ describe("executeTool", () => {
       tokenStore: new FakeTokenStore({
         "slack:default": { access_token: "xoxb-1" },
       }),
-      spawnPool: fakeSpawnPool(fakeHandle("slack")),
-      getSpawn: () => fakeSpawnConfig(),
+      getRemote: (a) => (a === "slack" ? fakeRemote() : undefined),
       connectClient: fakeConnect(expected, log),
     };
     const result = await executeTool(
@@ -158,8 +124,7 @@ describe("executeTool", () => {
       tokenStore: new FakeTokenStore({
         "jira:default": { access_token: "pat-xyz" },
       }),
-      spawnPool: fakeSpawnPool(fakeHandle("jira")),
-      getSpawn: () => fakeSpawnConfig(),
+      getRemote: (a) => (a === "jira" ? fakeRemote() : undefined),
       connectClient: fakeConnect(failing, log),
     };
     await expect(
@@ -172,8 +137,7 @@ describe("executeTool", () => {
     const log: ClientLog = { closed: false, calls: [] };
     const deps: ExecuteToolDeps = {
       tokenStore: new FakeTokenStore(),
-      spawnPool: fakeSpawnPool(fakeHandle("linear")),
-      getSpawn: () => fakeSpawnConfig(),
+      getRemote: (a) => (a === "linear" ? fakeRemote() : undefined),
       connectClient: fakeConnect({ content: [] }, log),
     };
     await expect(

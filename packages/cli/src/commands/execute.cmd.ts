@@ -3,7 +3,6 @@ import {
   executeTool,
   getService,
   OAuthClientStore,
-  SpawnPool,
   TokenStore,
 } from "@tensor-mcp/core";
 import { emitErr, emitOk } from "../utils/json";
@@ -13,9 +12,10 @@ import { emitErr, emitOk } from "../utils/json";
  * tool. The third argument is the JSON-encoded input matching the tool's
  * `input_schema` (default `{}`).
  *
- * On 401 against a remote-MCP app, silently refreshes the OAuth token
- * (see [[executeTool]]). On refresh failure, surfaces a "re-run connect"
- * message — never re-opens a browser from a non-interactive context.
+ * On 401 (either remote MCP or Pipedream-component path), silently refreshes
+ * the OAuth token via the auth strategy's refresh-token grant and retries
+ * once. On refresh failure, surfaces a "re-run connect" message — we never
+ * re-open a browser from a non-interactive CLI context.
  */
 export async function executeCmd(
   app: string,
@@ -36,15 +36,12 @@ export async function executeCmd(
 
   const tokenStore = new TokenStore();
   const oauthClientStore = new OAuthClientStore();
-  const pool = new SpawnPool();
 
   try {
     const result = await executeTool(
       { app, tool, input },
       {
         tokenStore,
-        spawnPool: pool,
-        getSpawn: (a) => (a === app ? def.spawn : undefined),
         getRemote: (a) => (a === app ? def.remote : undefined),
         getPipedream: (a) => (a === app ? def.pipedream : undefined),
         tryRefresh: async (a) => {
@@ -69,7 +66,7 @@ export async function executeCmd(
     );
 
     if (result.isError) {
-      // Tool itself errored — still return its JSON so the agent can read it.
+      // Tool errored — still return its JSON so the agent can read it.
       // Exit non-zero so shell pipelines see the failure.
       process.stdout.write(`${JSON.stringify(result)}\n`);
       return 1;
@@ -77,7 +74,5 @@ export async function executeCmd(
     return emitOk(result);
   } catch (err) {
     return emitErr((err as Error).message);
-  } finally {
-    await pool.shutdown();
   }
 }

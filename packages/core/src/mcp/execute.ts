@@ -1,22 +1,22 @@
 import type { PipedreamServiceConfig } from "../defineService";
 import {
-  listPipedreamTools,
-  makeAuthReader,
-  runPipedreamAction,
-} from "../services/adapt/pipedream";
-import {
   connectionIdFor,
   type KeyValueStore,
   type TokenBundle,
 } from "../stores/types";
-import { defaultAuthHeaders, type RemoteMcpConfig } from "../transports/remote";
 import {
   connectMcpClient,
+  defaultAuthHeaders,
   looksUnauthorized,
+  type McpToolResult,
+  type RemoteMcpConfig,
   UnauthorizedToolCallError,
-} from "../transports/stdio";
-import type { SpawnPool } from "../transports/stdio-pool";
-import type { SpawnConfig, SpawnedProcess } from "../transports/types";
+} from "../transports/remote";
+import {
+  listPipedreamTools,
+  makeAuthReader,
+  runPipedreamAction,
+} from "../transports/pipedream";
 
 export interface ExecuteToolRequest {
   /** App slug as returned by `apps` / `search`. */
@@ -34,9 +34,6 @@ export interface ExecuteToolResult {
 
 export interface ExecuteToolDeps {
   tokenStore: Pick<KeyValueStore<TokenBundle>, "get">;
-  spawnPool: Pick<SpawnPool, "ensure">;
-  /** Returns the app's local-subprocess descriptor, if any. */
-  getSpawn: (app: string) => SpawnConfig | undefined;
   /** Returns the app's hosted-MCP descriptor, if any. */
   getRemote?: (app: string) => RemoteMcpConfig | undefined;
   /** Returns the app's Pipedream-component descriptor, if any. */
@@ -52,23 +49,19 @@ export interface ExecuteToolDeps {
 }
 
 /**
- * Execute a discovered tool. Routes to whichever transport the app
- * declared in its `defineService` entry:
+ * Execute a discovered tool. Two transport branches, one each:
  *
- *  - `spawn`: pool a Klavis-style subprocess (started on demand), open a
- *    short-lived MCP client to its loopback URL, fire the call, close.
- *  - `remote`: open a short-lived MCP client straight to the vendor's
- *    hosted MCP URL with the stored token as a Bearer header
- *    (override via `RemoteMcpConfig.authHeaders`).
+ *  - `remote`: open a short-lived MCP client to the vendor's hosted MCP URL
+ *    with the stored token as a Bearer header (override via
+ *    `RemoteMcpConfig.authHeaders`). The vendor runs the tool code and
+ *    returns the result.
  *
- * On a 401 from a `remote` app, silently refresh the OAuth token via
- * `tryRefresh` and retry once. The 401 may surface during `initialize`
- * (raw transport error) OR during `tools/call` (wrapped as
- * `UnauthorizedToolCallError`); both routes are handled.
+ *  - `pipedream`: run the upstream Pipedream component code in-process.
+ *    `services/<app>/` holds the lifted `.mjs` files; the runtime in
+ *    `transports/pipedream/` instantiates the action's `this` context (with
+ *    a `$auth` proxy backed by our keychain) and invokes its `run()`.
  *
- * `spawn` apps don't refresh today — their token is baked into the
- * subprocess's `AUTH_DATA` env, so refresh would require kill+respawn.
- * Tracked separately (see SpawnPool stale-token invalidation).
+ * On any 401-shaped failure, attempt one silent token refresh + retry.
  */
 export async function executeTool(
   req: ExecuteToolRequest,
@@ -80,8 +73,7 @@ export async function executeTool(
 
   const pipedream = deps.getPipedream?.(req.app);
   const remote = pipedream ? undefined : deps.getRemote?.(req.app);
-  const spawn = pipedream || remote ? undefined : deps.getSpawn(req.app);
-  if (!pipedream && !remote && !spawn) {
+  if (!pipedream && !remote) {
     throw new Error(`unknown app '${req.app}'`);
   }
 
@@ -91,44 +83,57 @@ export async function executeTool(
   }
 
   if (pipedream) {
-    return await executePipedream(req, pipedream, initialToken);
+    return await runOnce(
+      () => executePipedream(req, pipedream, initialToken),
+      deps.tryRefresh ? () => deps.tryRefresh!(req.app) : undefined,
+      (token) => executePipedream(req, pipedream, token),
+    );
   }
+  if (remote) {
+    return await runOnce(
+      () => executeRemote(req, remote, initialToken, deps.connectClient),
+      deps.tryRefresh ? () => deps.tryRefresh!(req.app) : undefined,
+      (token) => executeRemote(req, remote, token, deps.connectClient),
+    );
+  }
+  throw new Error("unreachable");
+}
 
-  const connect = deps.connectClient ?? connectMcpClient;
-
-  const attempt = async (token: TokenBundle): Promise<ExecuteToolResult> => {
-    let mcpUrl: string;
-    let headers: Record<string, string> | undefined;
-    let handle: SpawnedProcess | undefined;
-
-    if (remote) {
-      mcpUrl = remote.mcpUrl;
-      headers = (remote.authHeaders ?? defaultAuthHeaders)(token);
-    } else if (spawn) {
-      handle = await deps.spawnPool.ensure(req.app, spawn, token);
-      mcpUrl = handle.mcpUrl;
-    } else {
-      throw new Error("unreachable");
-    }
-
-    const client = await connect(mcpUrl, headers ? { headers } : undefined);
-    try {
-      return await client.callTool(req.tool, req.input ?? {});
-    } finally {
-      await client.close();
-    }
-  };
-
+// Generic 401-then-refresh-then-retry-once wrapper, shared by both transport
+// branches so refresh semantics stay identical no matter who's running the
+// tool code.
+async function runOnce(
+  attempt: () => Promise<ExecuteToolResult>,
+  refresh: undefined | (() => Promise<TokenBundle>),
+  retryWith: (token: TokenBundle) => Promise<ExecuteToolResult>,
+): Promise<ExecuteToolResult> {
   try {
-    return await attempt(initialToken);
+    return await attempt();
   } catch (err) {
     const unauthorized =
       err instanceof UnauthorizedToolCallError || looksUnauthorized(err);
-    if (unauthorized && remote && deps.tryRefresh) {
-      const newToken = await deps.tryRefresh(req.app);
-      return await attempt(newToken);
+    if (unauthorized && refresh) {
+      const newToken = await refresh();
+      return await retryWith(newToken);
     }
     throw err;
+  }
+}
+
+async function executeRemote(
+  req: ExecuteToolRequest,
+  cfg: RemoteMcpConfig,
+  token: TokenBundle,
+  connectClient?: typeof connectMcpClient,
+): Promise<ExecuteToolResult> {
+  const connect = connectClient ?? connectMcpClient;
+  const headers = (cfg.authHeaders ?? defaultAuthHeaders)(token);
+  const client = await connect(cfg.mcpUrl, { headers });
+  try {
+    const r: McpToolResult = await client.callTool(req.tool, req.input ?? {});
+    return { content: r.content, isError: r.isError };
+  } finally {
+    await client.close();
   }
 }
 

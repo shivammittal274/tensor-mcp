@@ -15,7 +15,6 @@ import {
   OAuthClientStore,
   search,
   SERVICES,
-  SpawnPool,
   TokenStore,
 } from "@tensor-mcp/core";
 import { asMcpRequest } from "../utils/args";
@@ -145,18 +144,15 @@ const log = (msg: string): void => {
 export interface ServeOptions {
   /** Path to the catalog database. Default: `~/.tensor-mcp/catalog.sqlite`. */
   catalogPath?: string;
-  /** Override for the workspace root used by `Service.spawn.vendorDir`. */
-  tensorMcpRoot?: string;
 }
 
 /**
  * Boot the MCP stdio server — what `tensor-mcp serve` runs. Lifecycle:
  *
  *  1. Open catalog + token/oauth/connections stores.
- *  2. Create a spawn pool for `spawn`-type apps.
- *  3. Register ListTools + CallTool handlers (delegate to core/mcp + core/search).
- *  4. Wire stdio transport. Resolve when transport closes.
- *  5. SIGINT/SIGTERM/stdin-EOF → shut down pool + close DB.
+ *  2. Register ListTools + CallTool handlers (delegate to core/mcp + core/search).
+ *  3. Wire stdio transport. Resolve when transport closes.
+ *  4. SIGINT/SIGTERM/stdin-EOF → close DB.
  */
 export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
   log("opening catalog...");
@@ -167,9 +163,6 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
   const tokenStore = new TokenStore();
   const oauthClientStore = new OAuthClientStore();
   const connections = new ConnectionsStore();
-
-  log("creating spawn pool...");
-  const pool = new SpawnPool();
 
   log("creating MCP server...");
   const server = new Server(
@@ -202,8 +195,6 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
           asMcpRequest<Parameters<typeof executeTool>[0]>(args),
           {
             tokenStore,
-            spawnPool: pool,
-            getSpawn: (app) => SERVICES[app]?.spawn,
             getRemote: (app) => SERVICES[app]?.remote,
             getPipedream: (app) => SERVICES[app]?.pipedream,
             tryRefresh: async (app) => {
@@ -243,7 +234,6 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
             oauthClientStore,
             connections,
             catalog,
-            tensorMcpRoot: options.tensorMcpRoot,
           },
         );
         return ok(result);
@@ -279,11 +269,6 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     log("shutting down...");
-    try {
-      await pool.shutdown();
-    } catch (err) {
-      log(`spawn pool shutdown error: ${(err as Error).message}`);
-    }
     try {
       catalog.close();
     } catch {
@@ -321,7 +306,6 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
   log("ready");
   await closed;
   log("transport closed; exiting");
-  await pool.shutdown();
   catalog.close();
 }
 

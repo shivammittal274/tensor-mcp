@@ -1,26 +1,38 @@
-// MCP transports: stdio (local subprocess) + remote (Streamable HTTP).
+// MCP execution transports. Two siblings. A Service picks exactly one via
+// its `remote` or `pipedream` field — never both. Migrating between them
+// is a one-line change to that Service's `defineService({...})` entry.
 //
-// Every Service uses exactly one of these. `Service.spawn` → stdio. `Service.remote`
-// → remote. The dispatch happens in `mcp/execute.ts` and `catalog/ingest.ts`.
+//   remote    → vendor-hosted MCP at a public URL. Streamable HTTP, Bearer
+//               header. Vendor runs the tool code. Zero per-vendor
+//               maintenance on our side. Example: Linear (mcp.linear.app),
+//               Stripe (mcp.stripe.com), Sentry (mcp.sentry.dev).
+//
+//   pipedream → in-process runner that executes lifted Pipedream component
+//               code from services/<name>/. Tokens stay in the OS keychain,
+//               every API call goes from the user's machine direct to the
+//               vendor. We maintain the lifted code. Example: Slack.
+//
+// Strategic direction: as more vendors ship hosted MCP endpoints, services
+// migrate from `pipedream` → `remote`. The Service interface treats both
+// fields as equals so migration is one-line.
 
-// ─── stdio: local subprocess running a Klavis (or custom) MCP server ─────────
-export { spawnSubprocess } from "./spawn";
-export { findWorkspaceRoot, spawnService } from "./stdio-spawn";
-export { SpawnPool } from "./stdio-pool";
 export {
   connectMcpClient,
+  defaultAuthHeaders,
   looksUnauthorized,
+  remoteMcp,
+  UnauthorizedToolCallError,
   type McpClientHandle,
   type McpToolDef,
   type McpToolResult,
-  UnauthorizedToolCallError,
-} from "./stdio";
-export { klavisPython, klavisTypescript } from "./klavis";
-export type { SpawnConfig, SpawnedProcess, SpawnOptions } from "./types";
-
-// ─── remote: Streamable HTTP straight to vendor-hosted MCP ───────────────────
-export {
-  defaultAuthHeaders,
-  remoteMcp,
   type RemoteMcpConfig,
 } from "./remote";
+
+export {
+  listPipedreamTools,
+  makeAuthReader,
+  runPipedreamAction,
+  type PipedreamActionModule,
+  type PipedreamAppModule,
+  type PipedreamAuthReader,
+} from "./pipedream";

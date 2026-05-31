@@ -1,47 +1,41 @@
 import type { AuthStrategy } from "./auth/types";
+import type { TokenBundle } from "./stores/types";
 import type {
   PipedreamActionModule,
   PipedreamAppModule,
-} from "./services/adapt/pipedream";
-import type { TokenBundle } from "./stores/types";
+} from "./transports/pipedream";
 import type { RemoteMcpConfig } from "./transports/remote";
-import type { SpawnConfig } from "./transports/types";
 
 /**
- * A connectable third-party service. Every service is fully declared by a
- * single entry in `core/services.ts`: an auth strategy + an execution
- * descriptor (one of `spawn`, `remote`, `pipedream`).
+ * A connectable third-party service. Every entry under `services/` is one
+ * `defineService({...})` call. A service picks **exactly one** transport:
+ *
+ *   • `remote`    — hosted MCP at a vendor URL. Connects via
+ *                   Streamable HTTP, attaches our stored token as a Bearer
+ *                   header. The vendor runs the tool code. Pattern of
+ *                   choice for vendors that ship a public MCP endpoint
+ *                   (Linear, Notion, Stripe, Sentry, …).
+ *
+ *   • `pipedream` — in-process runner over lifted Pipedream component
+ *                   code. tensor-mcp's binary executes the upstream
+ *                   `<app>.app.mjs` + `actions/` modules unchanged; auth
+ *                   tokens stay in the OS keychain and every API call
+ *                   goes from the user's machine direct to the vendor.
  */
 export interface Service {
-  /** URL-safe slug used as the connection key (e.g. "linear", "github"). */
+  /** URL-safe slug used as the connection key (e.g. "linear", "slack"). */
   id: string;
 
-  /** Human-readable name shown in CLI/UI (e.g. "Linear", "GitHub"). */
+  /** Human-readable name shown in CLI/UI. */
   displayName: string;
 
-  /** How to authenticate. Composable strategy: OAuth DCR / static / PAT / API key. */
+  /** How to authenticate. Composable strategy: OAuth DCR / static / PAT / API key / no-auth. */
   auth: AuthStrategy;
 
-  /**
-   * Local subprocess execution — vendorDir + command + envInject +
-   * forgeAuthData. Use convention helpers like `klavisPython` for the
-   * common cases.
-   */
-  spawn?: SpawnConfig;
-
-  /**
-   * Hosted-MCP execution — connect a Streamable HTTP MCP client straight
-   * to the vendor's URL with our stored token as a Bearer header. Use
-   * `remoteMcp(url)` to build with sensible defaults.
-   */
+  /** Hosted-MCP execution. Use `remoteMcp(url)` to build with sensible defaults. */
   remote?: RemoteMcpConfig;
 
-  /**
-   * In-process Pipedream component execution — no subprocess, no remote
-   * MCP. The shim in `services/adapt/pipedream/` runs the upstream
-   * action modules unchanged. See `services/local/slack/` for the
-   * lifted-files layout this expects.
-   */
+  /** In-process Pipedream component execution. See `services/slack/` for the layout. */
   pipedream?: PipedreamServiceConfig;
 }
 
@@ -57,17 +51,15 @@ export interface PipedreamServiceConfig {
 
 /**
  * Identity helper for service files — provides type inference and a single
- * import surface in `core/services.ts`. Enforces exactly-one execution
- * descriptor at runtime.
+ * import surface in `services/<name>.ts`. Enforces exactly-one transport at
+ * runtime so a misconfigured service fails fast at registry boot, not at
+ * the first call.
  */
 export function defineService(s: Service): Service {
-  const count =
-    (s.spawn != null ? 1 : 0) +
-    (s.remote != null ? 1 : 0) +
-    (s.pipedream != null ? 1 : 0);
+  const count = (s.remote != null ? 1 : 0) + (s.pipedream != null ? 1 : 0);
   if (count !== 1) {
     throw new Error(
-      `defineService('${s.id}'): exactly one of 'spawn', 'remote', or 'pipedream' must be set`,
+      `defineService('${s.id}'): exactly one of 'remote' or 'pipedream' must be set`,
     );
   }
   return s;

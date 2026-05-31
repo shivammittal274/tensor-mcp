@@ -41,8 +41,6 @@ export interface ConnectAppDeps {
   catalog: Catalog;
   /** Refresh the live search index after a successful ingest. */
   onCatalogChanged?: () => Promise<void> | void;
-  /** Override for `Service.spawn`'s `vendorDir` resolution. */
-  tensorMcpRoot?: string;
   /**
    * Optional override for the auth strategy's IO — used by the MCP serve
    * path to capture the OAuth redirect URL instead of spawning a browser
@@ -123,11 +121,9 @@ export async function connectApp(
 
   const tools_indexed = await ingestService(deps.catalog, {
     service: req.app,
-    spawn: def.spawn,
     remote: def.remote,
     pipedream: def.pipedream,
     token: bundle,
-    tensorMcpRoot: deps.tensorMcpRoot,
   });
 
   await deps.onCatalogChanged?.();

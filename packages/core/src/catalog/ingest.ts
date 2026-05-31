@@ -1,23 +1,65 @@
 import type { PipedreamServiceConfig } from "../defineService";
-import { listPipedreamTools } from "../services/adapt/pipedream";
-import { defaultAuthHeaders, type RemoteMcpConfig } from "../transports/remote";
+import { listPipedreamTools } from "../transports/pipedream";
+import {
+  connectMcpClient,
+  defaultAuthHeaders,
+  type RemoteMcpConfig,
+} from "../transports/remote";
 import type { TokenBundle } from "../stores/types";
-import { connectMcpClient } from "../transports/stdio";
-import { spawnService } from "../transports/stdio-spawn";
-import type { SpawnConfig } from "../transports/types";
 import type { Catalog, CatalogTool } from "./catalog";
 
 export interface IngestServiceConfig {
   service: string;
-  /** Local-subprocess execution. */
-  spawn?: SpawnConfig;
-  /** Hosted-MCP execution. */
+  /** Hosted-MCP execution. Mutually exclusive with `pipedream`. */
   remote?: RemoteMcpConfig;
-  /** In-process Pipedream component execution. */
+  /** In-process Pipedream component execution. Mutually exclusive with `remote`. */
   pipedream?: PipedreamServiceConfig;
+  /** Required for `remote` (becomes Bearer header). Ignored for `pipedream`. */
   token?: TokenBundle;
-  readinessTimeoutMs?: number;
-  tensorMcpRoot?: string;
+}
+
+/**
+ * Walk a service's transport, enumerate its tools, persist them to the
+ * catalog. Two paths:
+ *
+ *  - `pipedream`: read action modules in-process (zero IO), generate JSON
+ *    schemas from `action.props`, write rows.
+ *  - `remote`: connect a Streamable HTTP MCP client with the user's Bearer
+ *    token, call `listTools()`, write rows.
+ *
+ * Idempotent — `catalog.upsertService` clears prior rows for the service.
+ */
+export async function ingestService(
+  catalog: Catalog,
+  config: IngestServiceConfig,
+): Promise<number> {
+  if (config.pipedream) {
+    const tools = listPipedreamTools(config.pipedream.actions).map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    }));
+    return await persistTools(catalog, config.service, async () => tools);
+  }
+
+  if (config.remote) {
+    const token: TokenBundle = config.token ?? {
+      access_token: "ingest_only_dummy",
+    };
+    const headers = (config.remote.authHeaders ?? defaultAuthHeaders)(token);
+    const client = await connectMcpClient(config.remote.mcpUrl, { headers });
+    try {
+      return await persistTools(catalog, config.service, () =>
+        client.listTools(),
+      );
+    } finally {
+      await client.close();
+    }
+  }
+
+  throw new Error(
+    `ingestService('${config.service}'): exactly one of 'remote' or 'pipedream' must be set`,
+  );
 }
 
 function versionHash(
@@ -31,68 +73,14 @@ function versionHash(
   return hasher.digest("hex").slice(0, 16);
 }
 
-export async function ingestService(
-  catalog: Catalog,
-  config: IngestServiceConfig,
-): Promise<number> {
-  const token: TokenBundle = config.token ?? {
-    access_token: "ingest_only_dummy",
-  };
-
-  if (config.pipedream) {
-    const tools = listPipedreamTools(config.pipedream.actions).map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    }));
-    return await persistTools(catalog, config.service, {
-      listTools: async () => tools,
-    });
-  }
-
-  if (config.remote) {
-    const headers = (config.remote.authHeaders ?? defaultAuthHeaders)(token);
-    const client = await connectMcpClient(config.remote.mcpUrl, { headers });
-    try {
-      return await persistTools(catalog, config.service, client);
-    } finally {
-      await client.close();
-    }
-  }
-
-  if (!config.spawn) {
-    throw new Error(
-      `ingestService('${config.service}'): exactly one of 'spawn', 'remote', or 'pipedream' must be set`,
-    );
-  }
-
-  const handle = await spawnService(config.service, config.spawn, {
-    token,
-    readinessTimeoutMs: config.readinessTimeoutMs,
-    tensorMcpRoot: config.tensorMcpRoot,
-  });
-  try {
-    const client = await connectMcpClient(handle.mcpUrl);
-    try {
-      return await persistTools(catalog, config.service, client);
-    } finally {
-      await client.close();
-    }
-  } finally {
-    await handle.kill();
-  }
-}
-
 async function persistTools(
   catalog: Catalog,
   service: string,
-  client: {
-    listTools: () => Promise<
-      Array<{ name: string; description?: string; inputSchema: unknown }>
-    >;
-  },
+  listTools: () => Promise<
+    Array<{ name: string; description?: string; inputSchema: unknown }>
+  >,
 ): Promise<number> {
-  const tools = await client.listTools();
+  const tools = await listTools();
   const now = Date.now();
   const rows: CatalogTool[] = tools.map((t) => ({
     service,
