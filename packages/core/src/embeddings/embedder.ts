@@ -1,27 +1,42 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
-// macOS arm64 dylib — embedded directly in the compiled binary.
-// TODO: build-time selection for other platforms.
+// Embedded artifacts — all bundled into the compiled binary so there's no
+// first-run download. ~23 MB total (22 MB quantized ONNX + 1 MB tokenizer).
 import dylibFile from "./libs/libonnxruntime.1.21.0.dylib" with { type: "file" };
+import modelFile from "./model/model_quantized.onnx" with { type: "file" };
+// `with { type: "file" }` gives Bun-only string paths at runtime; tsc sees
+// the JSON imports as parsed objects (because `resolveJsonModule` is on),
+// so suppress the mismatch here.
+// @ts-expect-error
+import tokenizerFile from "./model/tokenizer.json" with { type: "file" };
+// @ts-expect-error
+import tokenizerConfigFile from "./model/tokenizer_config.json" with { type: "file" };
+// @ts-expect-error
+import specialTokensFile from "./model/special_tokens_map.json" with { type: "file" };
+// @ts-expect-error
+import configFile from "./model/config.json" with { type: "file" };
+import vocabFile from "./model/vocab.txt" with { type: "file" };
 
 /**
- * `all-MiniLM-L6-v2` ONNX (Q8 quantized) sentence embeddings.
+ * `all-MiniLM-L6-v2` ONNX (Q8 quantized) sentence embeddings, fully bundled.
  *
- * Compiled binary embeds the ORT dylib + tokenizer here; the model itself
- * (22 MB) downloads to `~/.tensor-mcp/embeddings/` on first use to keep the
- * baseline binary download small. Subsequent searches are fully offline.
+ * The compiled binary ships the ORT dylib + the quantized model + the
+ * tokenizer artifacts. First search: ~250 ms extraction + WASM warmup;
+ * no network needed.
  *
- * The dylib-extraction dance is what makes this work in `bun --compile`:
- * Bun extracts the `.node` NAPI binding to `$TMPDIR/*.node`. macOS dyld
- * then resolves the `@rpath/libonnxruntime.X.dylib` reference relative to
- * the .node's location — so we write our embedded dylib to `$TMPDIR`
- * BEFORE requiring fastembed. Without this, dlopen fails because the
- * dynamic library isn't on any standard search path inside the
- * compiled-binary's virtual FS (`/$bunfs/`).
+ * Two extraction steps make this work in `bun --compile`:
+ *
+ *  1. Bun extracts the ORT `.node` NAPI binding to `$TMPDIR/*.node`.
+ *     macOS dyld then resolves `@rpath/libonnxruntime.X.dylib` relative
+ *     to the .node's location — so we write our embedded dylib to
+ *     `$TMPDIR/libonnxruntime.1.21.0.dylib` BEFORE requiring fastembed.
+ *
+ *  2. fastembed checks `<cacheDir>/<model_name>/model.onnx` and downloads
+ *     if missing. We pre-populate that path from the embedded quantized
+ *     model + tokenizer so the download step is skipped.
  */
 
-// One-time process-wide setup. Done once across many embed calls.
 let initPromise: Promise<Embedder> | null = null;
 
 export interface Embedder {
@@ -36,12 +51,9 @@ export function getEmbedder(): Promise<Embedder> {
 
 async function init(): Promise<Embedder> {
   await ensureDylibAvailable();
-  // Dynamic import so the static bundler only follows fastembed when this
-  // module is exercised — keeps `tensor-mcp` startup cold-path free of ORT.
-  const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
-  const cacheDir = join(homedir(), ".tensor-mcp", "embeddings");
-  mkdirSync(cacheDir, { recursive: true });
+  const cacheDir = await populateModelCache();
 
+  const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
   const model = await FlagEmbedding.init({
     model: EmbeddingModel.AllMiniLML6V2,
     cacheDir,
@@ -57,7 +69,9 @@ async function init(): Promise<Embedder> {
       // cosine math doesn't pay per-element type conversion.
       for await (const batch of model.embed(texts, 32)) {
         for (const v of batch) {
-          out.push(v instanceof Float32Array ? v : Float32Array.from(v as number[]));
+          out.push(
+            v instanceof Float32Array ? v : Float32Array.from(v as number[]),
+          );
         }
       }
       return out;
@@ -66,18 +80,46 @@ async function init(): Promise<Embedder> {
 }
 
 async function ensureDylibAvailable(): Promise<void> {
-  // Platform guard — we currently only embed the macOS arm64 dylib.
-  // Other platforms will need their dylib downloaded at runtime or
-  // embedded via a build-script switch (see scripts/build.sh).
   if (platform() !== "darwin") {
     throw new Error(
       `Embeddings unavailable on '${platform()}'. Build with the appropriate libonnxruntime for your platform.`,
     );
   }
-
   const dylibPath = join(tmpdir(), "libonnxruntime.1.21.0.dylib");
   if (existsSync(dylibPath)) return;
+  writeFileSync(
+    dylibPath,
+    new Uint8Array(await Bun.file(dylibFile).arrayBuffer()),
+  );
+}
 
-  const bytes = new Uint8Array(await Bun.file(dylibFile).arrayBuffer());
-  writeFileSync(dylibPath, bytes);
+/**
+ * Pre-populate the fastembed cache so its first-run download is skipped.
+ * Layout mirrors what fastembed expects: `<cacheDir>/fast-<modelName>/`.
+ *
+ * Returns the parent cacheDir to hand to `FlagEmbedding.init({ cacheDir })`.
+ */
+async function populateModelCache(): Promise<string> {
+  const cacheDir = join(homedir(), ".tensor-mcp", "embeddings");
+  const modelDir = join(cacheDir, "fast-all-MiniLM-L6-v2");
+  mkdirSync(modelDir, { recursive: true });
+
+  // fastembed checks for model.onnx; we ship the Q8-quantized variant under
+  // that filename. Quantization preserves output shape [seq, 384] — only
+  // the per-weight precision differs (int8 vs fp32).
+  const files: Array<[string, string]> = [
+    [modelFile, "model.onnx"],
+    [tokenizerFile, "tokenizer.json"],
+    [tokenizerConfigFile, "tokenizer_config.json"],
+    [specialTokensFile, "special_tokens_map.json"],
+    [configFile, "config.json"],
+    [vocabFile, "vocab.txt"],
+  ];
+  for (const [srcRef, dstName] of files) {
+    const dst = join(modelDir, dstName);
+    if (existsSync(dst)) continue;
+    const bytes = new Uint8Array(await Bun.file(srcRef).arrayBuffer());
+    writeFileSync(dst, bytes);
+  }
+  return cacheDir;
 }
