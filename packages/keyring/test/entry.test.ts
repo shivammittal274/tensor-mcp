@@ -1,6 +1,25 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Entry } from '../src/core/entry';
-import { KeyringError } from '../src/core/errors';
+import { KeyringError, type KeyringErrorKind } from '../src/core/errors';
+
+/**
+ * `bun:test`'s `.rejects.toSatisfy(fn)` proxy doesn't await the predicate
+ * the way vitest does, so we use a small try/catch helper instead. Same
+ * intent: assert a `KeyringError` with a specific `kind`.
+ */
+async function expectKeyringRejection(
+  promise: Promise<unknown>,
+  kind: KeyringErrorKind['kind'],
+): Promise<void> {
+  let caught: unknown;
+  try {
+    await promise;
+  } catch (err) {
+    caught = err;
+  }
+  expect(caught).toBeInstanceOf(KeyringError);
+  expect((caught as KeyringError).kind).toBe(kind);
+}
 import {
   type CredentialStore,
   setDefaultStore,
@@ -78,17 +97,13 @@ describe('Entry', () => {
 
   it('throws NoEntry when reading a missing credential', async () => {
     const entry = new Entry('com.composio.cli', 'nobody');
-    await expect(entry.getPassword()).rejects.toSatisfy(
-      (err: unknown) => err instanceof KeyringError && err.kind === 'NoEntry'
-    );
+    await expectKeyringRejection(entry.getPassword(), 'NoEntry');
   });
 
   it('throws BadEncoding when stored bytes are not valid UTF-8', async () => {
     const entry = new Entry('com.composio.cli', 'binaryuser');
     await entry.setSecret(new Uint8Array([0xff, 0xfe, 0xfd]));
-    await expect(entry.getPassword()).rejects.toSatisfy(
-      (err: unknown) => err instanceof KeyringError && err.kind === 'BadEncoding'
-    );
+    await expectKeyringRejection(entry.getPassword(), 'BadEncoding');
   });
 
   it('roundtrips raw binary bytes', async () => {
@@ -103,9 +118,7 @@ describe('Entry', () => {
     const entry = new Entry('com.composio.cli', 'default');
     await entry.setPassword('secret');
     await entry.deleteCredential();
-    await expect(entry.getPassword()).rejects.toSatisfy(
-      (err: unknown) => err instanceof KeyringError && err.kind === 'NoEntry'
-    );
+    await expectKeyringRejection(entry.getPassword(), 'NoEntry');
   });
 
   it('overrides the default store via constructor argument', async () => {
@@ -113,9 +126,7 @@ describe('Entry', () => {
     const entry = new Entry('svc', 'user', {}, other);
     await entry.setPassword('x');
     // Default store should still be empty.
-    await expect(new Entry('svc', 'user').getPassword()).rejects.toSatisfy(
-      (err: unknown) => err instanceof KeyringError && err.kind === 'NoEntry'
-    );
+    await expectKeyringRejection(new Entry('svc', 'user').getPassword(), 'NoEntry');
     expect(await entry.getPassword()).toBe('x');
   });
 
@@ -124,8 +135,6 @@ describe('Entry', () => {
     expect(hasDefaultStore()).toBe(false);
     expect(() => getDefaultStore()).toThrowError(KeyringError);
     const entry = new Entry('svc', 'user');
-    await expect(entry.getPassword()).rejects.toSatisfy(
-      (err: unknown) => err instanceof KeyringError && err.kind === 'NoDefaultStore'
-    );
+    await expectKeyringRejection(entry.getPassword(), 'NoDefaultStore');
   });
 });
