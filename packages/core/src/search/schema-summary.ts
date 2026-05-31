@@ -93,6 +93,25 @@ export function buildParamText(schema: unknown): string {
   return lines.join("\n");
 }
 
+/**
+ * Canonical text the sentence embedder sees per tool — toolName, description,
+ * then `buildParamText(schema)`. Defined once so the query-side (where we
+ * embed user queries) and the index-side (where we embed catalog rows) can't
+ * drift. Bump `EMBEDDING_TEXT_VERSION` whenever this shape changes; the
+ * search pipeline checks the catalog's stored version on each call and wipes
+ * stale embeddings before re-embedding.
+ */
+export function buildEmbeddingText(tool: {
+  toolName: string;
+  description: string;
+  inputSchema?: unknown;
+}): string {
+  return `${tool.toolName}\n${tool.description}\n${buildParamText(tool.inputSchema ?? {})}`;
+}
+
+export const EMBEDDING_TEXT_VERSION = 1;
+export const EMBEDDING_TEXT_VERSION_META_KEY = "embedding_text_version";
+
 function describeType(prop: RawProperty): string {
   const t = Array.isArray(prop.type)
     ? prop.type.filter((x) => x !== "null").join("|")

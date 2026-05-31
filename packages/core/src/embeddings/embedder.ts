@@ -1,50 +1,27 @@
-import { existsSync, statSync, writeFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
-import { homedir, platform, tmpdir } from "node:os";
+import { copyFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-// Embedded at compile time. `libs/active/runtime` is staged by
-// scripts/build.ts to the right `libonnxruntime.<ver>.{dylib,so.<ver>}` for
-// the target — only ONE platform's runtime ships in each binary. For Windows
-// builds we stage a 22-byte placeholder ("TENSOR_MCP_NO_RUNTIME") that this
-// file detects + treats as "no runtime → fall back to BM25".
-import runtimeBytes from "./libs/active/runtime" with { type: "file" };
-import modelFile from "./model/model_quantized.onnx" with { type: "file" };
-// @ts-expect-error — `with { type: "file" }` yields a string path; tsc
-// auto-resolves JSON as parsed objects (resolveJsonModule).
-import tokenizerFile from "./model/tokenizer.json" with { type: "file" };
-// @ts-expect-error
-import tokenizerConfigFile from "./model/tokenizer_config.json" with {
-  type: "file",
-};
-// @ts-expect-error
-import specialTokensFile from "./model/special_tokens_map.json" with {
-  type: "file",
-};
-// @ts-expect-error
-import configFile from "./model/config.json" with { type: "file" };
-import vocabFile from "./model/vocab.txt" with { type: "file" };
+import { ensureEmbeddings } from "./ensure";
 
 /**
  * `all-MiniLM-L6-v2` Q8-quantized ONNX sentence embeddings.
  *
- * Per-platform binaries embed exactly one libonnxruntime variant + the
- * quantized model + tokenizer artifacts. No network, no first-run download
- * for the embedded surface today.
+ * No bundled bytes — the model + dylib are downloaded into
+ * `~/.tensor-mcp/embeddings/` on first use by `ensureEmbeddings()`. This
+ * file's job is the platform plumbing:
  *
- * The platform dance that makes ORT-native work inside `bun --compile`:
+ *   1. Bun extracts the onnxruntime NAPI binding (.node) to `$TMPDIR/*.node`
+ *      at startup.
+ *   2. The dynamic linker (dyld on macOS, ld.so on Linux) resolves
+ *      `@rpath/libonnxruntime…` references relative to the .node's
+ *      directory — i.e. `$TMPDIR/libonnxruntime.…`. We copy the cached
+ *      dylib to that exact path BEFORE fastembed loads.
+ *   3. fastembed reads the model from `<cacheDir>/fast-all-MiniLM-L6-v2/`
+ *      — the same dir `ensureEmbeddings` populated.
  *
- *  1. Bun extracts the ORT NAPI binding (.node) to `$TMPDIR/*.node`.
- *  2. The dynamic linker (dyld on macOS, ld.so on Linux) resolves
- *     `@rpath/libonnxruntime…` references relative to the .node's
- *     directory — i.e. `$TMPDIR/libonnxruntime.…`. We write our embedded
- *     runtime bytes to that exact path BEFORE fastembed loads.
- *  3. fastembed resolves models from `~/.tensor-mcp/embeddings/` — we
- *     pre-populate that directory from the embedded model so the
- *     fastembed HuggingFace download is skipped.
- *
- * Throws `EmbedderUnavailableError` on Windows or other platforms that
- * shipped without a runtime. Callers (the search pipeline) catch this
- * + fall back to BM25-only.
+ * Throws `EmbedderUnavailableError` if the cache isn't ready (Windows,
+ * offline first run, download failure). Callers (`search.ts`,
+ * `connect.ts`) catch this and fall back to BM25-only.
  */
 
 export interface Embedder {
@@ -66,16 +43,18 @@ export function getEmbedder(): Promise<Embedder> {
   return initPromise;
 }
 
-const PLACEHOLDER_MARKER = "TENSOR_MCP_NO_RUNTIME";
-
 async function init(): Promise<Embedder> {
-  await ensureRuntimeAvailable();
-  const cacheDir = await populateModelCache();
+  const probe = await ensureEmbeddings();
+  if (!probe.available || !probe.cacheDir || !probe.runtimePath) {
+    throw new EmbedderUnavailableError(probe.reason ?? "unknown");
+  }
+
+  await stageRuntimeForDyld(probe.runtimePath, probe.runtimeFilename ?? "");
 
   const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
   const model = await FlagEmbedding.init({
     model: EmbeddingModel.AllMiniLML6V2,
-    cacheDir,
+    cacheDir: probe.cacheDir,
   });
 
   return {
@@ -95,57 +74,26 @@ async function init(): Promise<Embedder> {
   };
 }
 
-function runtimeFilenameForHost(): string {
-  if (platform() === "darwin") return "libonnxruntime.1.21.0.dylib";
-  if (platform() === "linux") return "libonnxruntime.so.1.21.0";
-  throw new EmbedderUnavailableError(`platform '${platform()}' not supported`);
-}
-
-async function ensureRuntimeAvailable(): Promise<void> {
-  // Cheap placeholder check: scripts/build.ts writes a 22-byte sentinel for
-  // Windows builds (which don't ship an onnxruntime native binding). Treat
-  // it as unavailable so search.ts falls back to BM25-only.
-  const sz = statSync(runtimeBytes).size;
-  if (sz < 1024) {
-    const peek = new Uint8Array(await Bun.file(runtimeBytes).arrayBuffer());
-    const decoder = new TextDecoder();
-    if (decoder.decode(peek).startsWith(PLACEHOLDER_MARKER)) {
-      throw new EmbedderUnavailableError("runtime not bundled for this build");
-    }
-  }
-
+/**
+ * Copy the cached libonnxruntime to `$TMPDIR/<expected-filename>` so dyld
+ * (macOS) / ld.so (Linux) can resolve the `@rpath/libonnxruntime…`
+ * reference baked into the .node binding. Linux additionally needs a copy
+ * under the SONAME (`libonnxruntime.so.1`).
+ *
+ * Idempotent: `existsSync` short-circuits if a previous run already
+ * staged it.
+ */
+async function stageRuntimeForDyld(
+  src: string,
+  filename: string,
+): Promise<void> {
   const dir = tmpdir();
-  const dst = join(dir, runtimeFilenameForHost());
-  const bytes = new Uint8Array(await Bun.file(runtimeBytes).arrayBuffer());
-  if (!existsSync(dst)) writeFileSync(dst, bytes);
-
-  // Linux .node bindings link against `libonnxruntime.so.1` (the SONAME),
-  // which on a normal install is a symlink to .so.1.21.0. Bun.embedFile
-  // can't ship symlinks, so we copy the same bytes under both names.
-  if (platform() === "linux") {
+  const dst = join(dir, filename);
+  if (!existsSync(dst)) {
+    copyFileSync(src, dst);
+  }
+  if (filename.endsWith(".so.1.21.0")) {
     const sonameDst = join(dir, "libonnxruntime.so.1");
-    if (!existsSync(sonameDst)) writeFileSync(sonameDst, bytes);
+    if (!existsSync(sonameDst)) copyFileSync(src, sonameDst);
   }
-}
-
-async function populateModelCache(): Promise<string> {
-  const cacheDir = join(homedir(), ".tensor-mcp", "embeddings");
-  const modelDir = join(cacheDir, "fast-all-MiniLM-L6-v2");
-  await mkdir(modelDir, { recursive: true });
-
-  const files: Array<[string, string]> = [
-    [modelFile, "model.onnx"],
-    [tokenizerFile, "tokenizer.json"],
-    [tokenizerConfigFile, "tokenizer_config.json"],
-    [specialTokensFile, "special_tokens_map.json"],
-    [configFile, "config.json"],
-    [vocabFile, "vocab.txt"],
-  ];
-  for (const [srcRef, dstName] of files) {
-    const dst = join(modelDir, dstName);
-    if (existsSync(dst)) continue;
-    const bytes = new Uint8Array(await Bun.file(srcRef).arrayBuffer());
-    writeFileSync(dst, bytes);
-  }
-  return cacheDir;
 }

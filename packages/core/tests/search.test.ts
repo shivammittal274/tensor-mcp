@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Catalog, type CatalogTool } from "../src/catalog/catalog";
+import { resetEnsureEmbeddingsCache } from "../src/embeddings/ensure";
 import { search } from "../src/mcp/search";
 
 // Real in-memory catalog (libsql via bun:sqlite). No mocks — the search
@@ -45,9 +46,17 @@ const TOOLS: Array<Omit<CatalogTool, "versionHash" | "indexedAt">> = [
 describe("search()", () => {
   let tempDir: string;
   let catalog: Catalog;
+  // Restored after each test — point ensureEmbeddings at an empty dir so
+  // it doesn't pick up the developer's globally-cached model from
+  // ~/.tensor-mcp/embeddings/ and accidentally exercise semantic search.
+  // We also need to clear the memoized probe between tests.
+  let prevEmbeddingsDir: string | undefined;
 
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "tmcp-search-"));
+    prevEmbeddingsDir = process.env.TENSOR_MCP_EMBEDDINGS_DIR;
+    process.env.TENSOR_MCP_EMBEDDINGS_DIR = join(tempDir, "embeddings");
+    resetEnsureEmbeddingsCache();
     catalog = new Catalog({ path: join(tempDir, "catalog.sqlite") });
     await catalog.open();
     const now = Date.now();
@@ -65,6 +74,12 @@ describe("search()", () => {
   afterEach(() => {
     catalog.close();
     rmSync(tempDir, { recursive: true, force: true });
+    if (prevEmbeddingsDir === undefined) {
+      delete process.env.TENSOR_MCP_EMBEDDINGS_DIR;
+    } else {
+      process.env.TENSOR_MCP_EMBEDDINGS_DIR = prevEmbeddingsDir;
+    }
+    resetEnsureEmbeddingsCache();
   });
 
   const isConnectedFrom = (apps: string[]) => {

@@ -10,9 +10,11 @@
  * Supported targets:
  *   darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64
  *
- * Windows ships as a BM25-only binary today — the onnxruntime native
- * binding hasn't been validated under `bun --compile` for win32 yet
- * (see Bun #18079). Semantic ranking falls back gracefully at runtime.
+ * Embeddings: the model + per-platform libonnxruntime are downloaded by
+ * `ensureEmbeddings()` on first use, NOT embedded in the binary. So every
+ * target builds the same way — no per-platform dylib staging. Windows
+ * gracefully falls back to BM25-only at runtime because no Windows
+ * libonnxruntime is published in the embeddings-v1 GH release (yet).
  *
  * Outputs land in `dist/`:
  *   tensor-mcp-<target>[.exe]   compiled binary
@@ -21,10 +23,8 @@
 
 import { spawnSync } from "node:child_process";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -52,54 +52,14 @@ const TARGETS: readonly Target[] = [
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const DIST = join(REPO_ROOT, "dist");
 const CLI_ENTRY = join(REPO_ROOT, "packages", "cli", "src", "index.ts");
-const LIBS_DIR = join(REPO_ROOT, "packages", "core", "src", "embeddings", "libs");
-const ACTIVE_RUNTIME_DIR = join(LIBS_DIR, "active");
-const ACTIVE_RUNTIME = join(ACTIVE_RUNTIME_DIR, "runtime");
-
-function runtimeSource(target: Target): string | null {
-  switch (target) {
-    case "darwin-arm64":
-      return join(LIBS_DIR, "darwin-arm64", "libonnxruntime.1.21.0.dylib");
-    case "darwin-x64":
-      return join(LIBS_DIR, "darwin-x64", "libonnxruntime.1.21.0.dylib");
-    case "linux-x64":
-      return join(LIBS_DIR, "linux-x64", "libonnxruntime.so.1.21.0");
-    case "linux-arm64":
-      return join(LIBS_DIR, "linux-arm64", "libonnxruntime.so.1.21.0");
-    case "windows-x64":
-      // Windows ships without onnxruntime. The embedder gracefully reports
-      // semantic_available=false and search falls back to BM25.
-      return null;
-  }
-}
 
 function buildTarget(target: Target): { artifact: string; size: number } {
   const isWindows = target.startsWith("windows-");
-
-  // Stage the right per-target dylib at `libs/active/runtime` so the embedder's
-  // `with { type: "file" }` import picks it up. For windows, we stage a tiny
-  // placeholder so the import resolves; embedder.ts detects + falls back.
-  mkdirSync(ACTIVE_RUNTIME_DIR, { recursive: true });
-  const src = runtimeSource(target);
-  if (src) {
-    if (!existsSync(src)) {
-      throw new Error(
-        `${target}: missing ${src}. Drop the dylib in libs/${target}/ first.`,
-      );
-    }
-    copyFileSync(src, ACTIVE_RUNTIME);
-  } else {
-    // Placeholder bytes: the embedder probes for this and short-circuits.
-    writeFileSync(ACTIVE_RUNTIME, Buffer.from("TENSOR_MCP_NO_RUNTIME"));
-  }
-
   const ext = isWindows ? ".exe" : "";
   const artifact = join(DIST, `tensor-mcp-${target}${ext}`);
   mkdirSync(DIST, { recursive: true });
 
-  process.stderr.write(
-    `Building tensor-mcp-${target} (runtime: ${src ? "shipped" : "none — BM25 only"})...\n`,
-  );
+  process.stderr.write(`Building tensor-mcp-${target}...\n`);
 
   const result = spawnSync(
     "bun",
@@ -211,6 +171,3 @@ try {
   process.stderr.write(`scripts/build.ts: ${(err as Error).message}\n`);
   process.exit(1);
 }
-
-// `readdirSync` is held in case future logic needs to walk libs/.
-void readdirSync;

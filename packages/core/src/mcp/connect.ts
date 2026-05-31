@@ -2,23 +2,6 @@ import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/share
 import { ingestService } from "../catalog/ingest";
 import type { Catalog } from "../catalog/catalog";
 import type { Service } from "../defineService";
-import { getEmbedder } from "../embeddings/embedder";
-import { ensureEmbeddings } from "../embeddings/ensure";
-import { buildParamText } from "../search/schema-summary";
-
-/**
- * Bumped whenever the text fed to `embedder.embed()` changes shape.
- *
- *   v0 (implicit) — `"${toolName}: ${description}"`
- *   v1            — `"${toolName}\n${description}\n${buildParamText(...)}"`
- *
- * On connect, if the catalog's stored version is older, we drop all stored
- * embeddings so the next embed pass writes fresh vectors that match the
- * current query-side embedding text. Pre-release: nobody has embeddings
- * they care about, so a full clear is fine.
- */
-export const EMBEDDING_TEXT_VERSION = 1;
-const EMBEDDING_TEXT_VERSION_META_KEY = "embedding_text_version";
 import type { ConnectionRecord } from "../stores/connections-store";
 import {
   connectionIdFor,
@@ -72,12 +55,11 @@ export interface ConnectAppDeps {
  *   so the caller can surface "paste your token here" prose.
  * - `noAuth`: persists an anonymous bundle. `token` is ignored.
  *
- * On success: persists the connection record, ingests the catalog by
- * spawning the underlying subprocess once, eagerly computes embeddings
- * for the new tools (best-effort — falls back to BM25-only at search
- * time when embeddings aren't available), then fires `onCatalogChanged`
- * so the long-running MCP server can rebuild its search index in the
- * same session.
+ * On success: persists the connection record + ingests the catalog. We
+ * deliberately do NOT compute embeddings here — the first `search` after
+ * connect lazily downloads the model (if needed) and embeds whatever's
+ * missing, so users who only run BM25-style searches never pay for
+ * embeddings they don't use.
  */
 export async function connectApp(
   req: ConnectAppRequest,
@@ -141,12 +123,6 @@ export async function connectApp(
     tensorMcpRoot: deps.tensorMcpRoot,
   });
 
-  await invalidateStaleEmbeddings(deps.catalog);
-  // Backfills the just-ingested app *and* any other apps whose embeddings
-  // were dropped by a version-bump invalidation, so the next semantic
-  // search lands on a complete index.
-  await backfillMissingEmbeddings(deps.catalog);
-
   await deps.onCatalogChanged?.();
 
   return {
@@ -157,53 +133,3 @@ export async function connectApp(
     tools_indexed,
   };
 }
-
-// If the catalog's stored embedding-text version is older than the binary's,
-// the stored vectors were embedded from a different text shape and would
-// score against today's queries non-deterministically. Drop them so the
-// backfill pass below regenerates everything from the current text.
-async function invalidateStaleEmbeddings(catalog: Catalog): Promise<void> {
-  const stored = await catalog.getMeta(EMBEDDING_TEXT_VERSION_META_KEY);
-  const storedVersion = stored == null ? 0 : Number(stored);
-  if (Number.isFinite(storedVersion) && storedVersion >= EMBEDDING_TEXT_VERSION) {
-    return;
-  }
-  await catalog.clearAllEmbeddings();
-  await catalog.setMeta(
-    EMBEDDING_TEXT_VERSION_META_KEY,
-    String(EMBEDDING_TEXT_VERSION),
-  );
-}
-
-// Embed every row whose embedding column is NULL — covers the just-ingested
-// app *and* any other apps left empty by a version-bump invalidation. Failure
-// is silent at every stage; search.ts falls back to BM25-only if anything
-// here goes sideways.
-async function backfillMissingEmbeddings(catalog: Catalog): Promise<void> {
-  const probe = await ensureEmbeddings();
-  if (!probe.available) return;
-
-  const missing = await catalog.listNeedingEmbedding();
-  if (missing.length === 0) return;
-
-  let embedder: Awaited<ReturnType<typeof getEmbedder>>;
-  try {
-    embedder = await getEmbedder();
-  } catch {
-    return;
-  }
-
-  const texts = missing.map(
-    (r) =>
-      `${r.toolName}\n${r.description}\n${buildParamText(r.inputSchema ?? {})}`,
-  );
-  const vectors = await embedder.embed(texts);
-  await catalog.updateEmbeddings(
-    missing.map((r, i) => ({
-      service: r.service,
-      toolName: r.toolName,
-      embedding: vectors[i],
-    })),
-  );
-}
-

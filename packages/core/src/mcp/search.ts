@@ -4,7 +4,10 @@ import { getEmbedder } from "../embeddings/embedder";
 import { BM25Search, type ToolIndexable } from "../search/bm25";
 import { reciprocalRankFusion } from "../search/rrf";
 import {
+  buildEmbeddingText,
   buildParamText,
+  EMBEDDING_TEXT_VERSION,
+  EMBEDDING_TEXT_VERSION_META_KEY,
   type ParamSummary,
   summarizeSchema,
 } from "../search/schema-summary";
@@ -120,6 +123,11 @@ export async function search(
   if (query === "") {
     return { hits: [], semantic_used: false, suggested_connects: [] };
   }
+
+  // Lazy-prepare embeddings before reading the catalog so the rows we read
+  // already carry up-to-date vectors. No-op if embeddings aren't available
+  // on this host — search falls back to BM25 transparently in that case.
+  await prepareEmbeddings(catalog);
 
   const allRows = await catalog.listAll();
 
@@ -259,9 +267,10 @@ interface SemanticContext {
 }
 
 // Best-effort semantic-index construction. Returns null if embeddings are
-// unavailable on this host (Windows, download failed, etc.) OR if not every
-// in-scope catalog row has an embedding yet (we don't want to score against
-// a partial index — search.ts callers should run `connect` to backfill).
+// unavailable on this host (Windows, download failed) OR if not every
+// in-scope catalog row has an embedding yet — we don't want to score against
+// a partial index. Re-running `search` after `prepareEmbeddings` populates
+// any rows lacking a vector.
 async function tryBuildSemantic(
   rows: Awaited<ReturnType<Catalog["listAll"]>>,
   indexable: ToolIndexable[],
@@ -286,4 +295,63 @@ async function tryBuildSemantic(
     // Don't propagate; BM25-only is the graceful fallback.
     return null;
   }
+}
+
+/**
+ * Idempotent lazy-prep run before each search. Two steps, both no-ops on
+ * the happy path:
+ *
+ *  1. If the binary's `EMBEDDING_TEXT_VERSION` is newer than what the
+ *     catalog last embedded against, wipe all stored vectors. The text
+ *     shape (toolName/desc/params) changed and the old vectors are noise.
+ *  2. Embed every catalog row whose vector is NULL. Covers both newly
+ *     connected apps (no embeddings yet) and step-1 wipes.
+ *
+ * Failure at any stage is silent: search falls back to BM25 if the
+ * embedder/model isn't there. ensureEmbeddings() handles the
+ * download-on-first-use; this function is what fires it.
+ */
+async function prepareEmbeddings(catalog: Catalog): Promise<void> {
+  const ensure = await ensureEmbeddings();
+  if (!ensure.available) return;
+
+  // Step 1: drop stale vectors after a text-shape bump.
+  const storedRaw = await catalog.getMeta(EMBEDDING_TEXT_VERSION_META_KEY);
+  const stored = storedRaw == null ? 0 : Number(storedRaw);
+  if (!Number.isFinite(stored) || stored < EMBEDDING_TEXT_VERSION) {
+    await catalog.clearAllEmbeddings();
+    await catalog.setMeta(
+      EMBEDDING_TEXT_VERSION_META_KEY,
+      String(EMBEDDING_TEXT_VERSION),
+    );
+  }
+
+  // Step 2: fill in missing vectors.
+  const missing = await catalog.listNeedingEmbedding();
+  if (missing.length === 0) return;
+
+  let embedder: Awaited<ReturnType<typeof getEmbedder>>;
+  try {
+    embedder = await getEmbedder();
+  } catch {
+    // Cache might still be downloading on a slow first run; BM25-only this
+    // turn, next turn picks up where we left off.
+    return;
+  }
+
+  const texts = missing.map((r) =>
+    buildEmbeddingText({
+      toolName: r.toolName,
+      description: r.description,
+      inputSchema: r.inputSchema,
+    }),
+  );
+  const vectors = await embedder.embed(texts);
+  await catalog.updateEmbeddings(
+    missing.map((r, i) => ({
+      service: r.service,
+      toolName: r.toolName,
+      embedding: vectors[i],
+    })),
+  );
 }
