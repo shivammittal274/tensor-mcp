@@ -1,14 +1,13 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
-// Embedded artifacts — all bundled into the compiled binary so there's no
-// first-run download. ~23 MB total (22 MB quantized ONNX + 1 MB tokenizer).
-import dylibFile from "./libs/libonnxruntime.1.21.0.dylib" with { type: "file" };
+// Embedded at compile time. `libs/active/runtime` is set by scripts/build.sh
+// to the right `libonnxruntime.<ver>.{dylib,so.<ver>}` for the target
+// platform — only ONE platform's runtime ships in each binary.
+import runtimeBytes from "./libs/active/runtime" with { type: "file" };
 import modelFile from "./model/model_quantized.onnx" with { type: "file" };
-// `with { type: "file" }` gives Bun-only string paths at runtime; tsc sees
-// the JSON imports as parsed objects (because `resolveJsonModule` is on),
-// so suppress the mismatch here.
-// @ts-expect-error
+// @ts-expect-error — Bun's `with { type: "file" }` yields a string path; tsc
+// auto-resolves JSON imports to parsed objects (resolveJsonModule).
 import tokenizerFile from "./model/tokenizer.json" with { type: "file" };
 // @ts-expect-error
 import tokenizerConfigFile from "./model/tokenizer_config.json" with { type: "file" };
@@ -19,22 +18,21 @@ import configFile from "./model/config.json" with { type: "file" };
 import vocabFile from "./model/vocab.txt" with { type: "file" };
 
 /**
- * `all-MiniLM-L6-v2` ONNX (Q8 quantized) sentence embeddings, fully bundled.
+ * `all-MiniLM-L6-v2` Q8-quantized ONNX sentence embeddings, fully bundled.
  *
- * The compiled binary ships the ORT dylib + the quantized model + the
- * tokenizer artifacts. First search: ~250 ms extraction + WASM warmup;
- * no network needed.
+ * Per-platform binaries embed exactly one libonnxruntime variant + the
+ * quantized model + tokenizer artifacts. No network, no first-run download.
  *
- * Two extraction steps make this work in `bun --compile`:
+ * The platform dance that makes ORT-native work inside `bun --compile`:
  *
- *  1. Bun extracts the ORT `.node` NAPI binding to `$TMPDIR/*.node`.
- *     macOS dyld then resolves `@rpath/libonnxruntime.X.dylib` relative
- *     to the .node's location — so we write our embedded dylib to
- *     `$TMPDIR/libonnxruntime.1.21.0.dylib` BEFORE requiring fastembed.
- *
- *  2. fastembed checks `<cacheDir>/<model_name>/model.onnx` and downloads
- *     if missing. We pre-populate that path from the embedded quantized
- *     model + tokenizer so the download step is skipped.
+ *  1. Bun extracts the ORT NAPI binding (.node) to `$TMPDIR/*.node`.
+ *  2. The dynamic linker (dyld on macOS, ld.so on Linux) resolves
+ *     `@rpath/libonnxruntime…` references relative to the .node's
+ *     directory — i.e. `$TMPDIR/libonnxruntime.…`. So we write our
+ *     embedded runtime bytes to that exact path BEFORE fastembed loads.
+ *  3. fastembed then resolves models from `~/.tensor-mcp/embeddings/` —
+ *     we pre-populate that directory from the embedded model so the
+ *     fastembed HuggingFace download is skipped.
  */
 
 let initPromise: Promise<Embedder> | null = null;
@@ -50,7 +48,7 @@ export function getEmbedder(): Promise<Embedder> {
 }
 
 async function init(): Promise<Embedder> {
-  await ensureDylibAvailable();
+  await ensureRuntimeAvailable();
   const cacheDir = await populateModelCache();
 
   const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
@@ -64,9 +62,6 @@ async function init(): Promise<Embedder> {
     async embed(texts: string[]): Promise<Float32Array[]> {
       if (texts.length === 0) return [];
       const out: Float32Array[] = [];
-      // batch=32 keeps RAM bounded under ingest of 600+ tools. fastembed
-      // yields `number[]` per text; convert to Float32Array so downstream
-      // cosine math doesn't pay per-element type conversion.
       for await (const batch of model.embed(texts, 32)) {
         for (const v of batch) {
           out.push(
@@ -79,34 +74,43 @@ async function init(): Promise<Embedder> {
   };
 }
 
-async function ensureDylibAvailable(): Promise<void> {
-  if (platform() !== "darwin") {
-    throw new Error(
-      `Embeddings unavailable on '${platform()}'. Build with the appropriate libonnxruntime for your platform.`,
-    );
-  }
-  const dylibPath = join(tmpdir(), "libonnxruntime.1.21.0.dylib");
-  if (existsSync(dylibPath)) return;
-  writeFileSync(
-    dylibPath,
-    new Uint8Array(await Bun.file(dylibFile).arrayBuffer()),
+/**
+ * Filename the dynamic linker expects, per platform. The actual *bytes*
+ * came from the build-time-active runtime; only the on-disk name varies.
+ */
+function runtimeFilenameForHost(): string {
+  if (platform() === "darwin") return "libonnxruntime.1.21.0.dylib";
+  if (platform() === "linux") return "libonnxruntime.so.1.21.0";
+  throw new Error(
+    `Embeddings unavailable on '${platform()}'. Build with the appropriate libonnxruntime for your platform.`,
   );
+}
+
+async function ensureRuntimeAvailable(): Promise<void> {
+  const dir = tmpdir();
+  const dst = join(dir, runtimeFilenameForHost());
+  const bytes = new Uint8Array(await Bun.file(runtimeBytes).arrayBuffer());
+  if (!existsSync(dst)) writeFileSync(dst, bytes);
+
+  // Linux .node bindings link against `libonnxruntime.so.1` (the SONAME),
+  // which on a normal install is a symlink to the .so.1.21.0 file. We can't
+  // ship symlinks through Bun.embedFile, so we copy the same bytes under
+  // both names. Identical content, ~21 MB extra on disk in $TMPDIR — fine.
+  if (platform() === "linux") {
+    const sonameDst = join(dir, "libonnxruntime.so.1");
+    if (!existsSync(sonameDst)) writeFileSync(sonameDst, bytes);
+  }
 }
 
 /**
  * Pre-populate the fastembed cache so its first-run download is skipped.
  * Layout mirrors what fastembed expects: `<cacheDir>/fast-<modelName>/`.
- *
- * Returns the parent cacheDir to hand to `FlagEmbedding.init({ cacheDir })`.
  */
 async function populateModelCache(): Promise<string> {
   const cacheDir = join(homedir(), ".tensor-mcp", "embeddings");
   const modelDir = join(cacheDir, "fast-all-MiniLM-L6-v2");
   mkdirSync(modelDir, { recursive: true });
 
-  // fastembed checks for model.onnx; we ship the Q8-quantized variant under
-  // that filename. Quantization preserves output shape [seq, 384] — only
-  // the per-weight precision differs (int8 vs fp32).
   const files: Array<[string, string]> = [
     [modelFile, "model.onnx"],
     [tokenizerFile, "tokenizer.json"],
