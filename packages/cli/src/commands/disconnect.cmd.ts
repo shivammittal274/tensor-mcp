@@ -5,7 +5,7 @@ import {
   OAuthClientStore,
   TokenStore,
 } from "@tensor-mcp/core";
-import { emitErr, emitOk } from "../json";
+import { emitErr, emitOk } from "../utils/json";
 
 /**
  * `tensor-mcp disconnect <app>` — pairs with the MCP `disconnect_app` tool.

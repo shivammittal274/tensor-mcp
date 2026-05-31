@@ -4,7 +4,7 @@ import {
   ConnectionsStore,
   search,
 } from "@tensor-mcp/core";
-import { emitErr, emitOk } from "../json";
+import { emitErr, emitOk } from "../utils/json";
 
 export interface SearchCmdOpts {
   topK?: number | string;

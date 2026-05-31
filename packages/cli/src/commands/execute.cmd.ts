@@ -6,7 +6,7 @@ import {
   SpawnPool,
   TokenStore,
 } from "@tensor-mcp/core";
-import { emitErr, emitOk } from "../json";
+import { emitErr, emitOk } from "../utils/json";
 
 /**
  * `tensor-mcp execute <app> <tool> '<json>'` — pairs with the MCP `execute`

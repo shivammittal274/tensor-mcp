@@ -2,7 +2,8 @@ import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/share
 import { ingestService } from "../catalog/ingest";
 import type { Catalog } from "../catalog/catalog";
 import type { Service } from "../defineService";
-import { backfillEmbeddings } from "./_backfill-embeddings";
+import { getEmbedder } from "../embeddings/embedder";
+import { ensureEmbeddings } from "../embeddings/ensure";
 import type { ConnectionRecord } from "../stores/connections-store";
 import {
   connectionIdFor,
@@ -57,10 +58,11 @@ export interface ConnectAppDeps {
  * - `noAuth`: persists an anonymous bundle. `token` is ignored.
  *
  * On success: persists the connection record, ingests the catalog by
- * spawning the underlying subprocess once, computes embeddings for newly
- * indexed tools (best-effort, swallowed on failure — see [[backfillEmbeddings]]),
- * then fires `onCatalogChanged` so the long-running MCP server can rebuild
- * its search index in the same session.
+ * spawning the underlying subprocess once, eagerly computes embeddings
+ * for the new tools (best-effort — falls back to BM25-only at search
+ * time when embeddings aren't available), then fires `onCatalogChanged`
+ * so the long-running MCP server can rebuild its search index in the
+ * same session.
  */
 export async function connectApp(
   req: ConnectAppRequest,
@@ -124,10 +126,7 @@ export async function connectApp(
     tensorMcpRoot: deps.tensorMcpRoot,
   });
 
-  // Eagerly embed the new tools so the *first* search lands on the fused
-  // RRF index, not the BM25-only fallback. Failure is silent — search
-  // covers the gap when called.
-  await backfillEmbeddings(deps.catalog, { app: req.app });
+  await embedAppTools(deps.catalog, req.app);
 
   await deps.onCatalogChanged?.();
 
@@ -138,4 +137,33 @@ export async function connectApp(
     auth_method: method,
     tools_indexed,
   };
+}
+
+// Embed the newly-ingested tools so the *first* search after connect lands
+// on the fused RRF index instead of the BM25-only fallback. Failure is
+// silent at every stage — search.ts always covers the gap if this fails.
+async function embedAppTools(catalog: Catalog, app: string): Promise<void> {
+  const probe = await ensureEmbeddings();
+  if (!probe.available) return;
+
+  const rows = await catalog.listByService(app);
+  const missing = rows.filter((r) => r.embedding == null);
+  if (missing.length === 0) return;
+
+  let embedder: Awaited<ReturnType<typeof getEmbedder>>;
+  try {
+    embedder = await getEmbedder();
+  } catch {
+    return;
+  }
+
+  const texts = missing.map((r) => `${r.toolName}: ${r.description}`);
+  const vectors = await embedder.embed(texts);
+  await catalog.updateEmbeddings(
+    missing.map((r, i) => ({
+      service: r.service,
+      toolName: r.toolName,
+      embedding: vectors[i],
+    })),
+  );
 }

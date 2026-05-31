@@ -5,7 +5,7 @@ import {
   ConnectionsStore,
   listServices,
 } from "@tensor-mcp/core";
-import { emitErr, emitOk } from "../json";
+import { emitErr, emitOk } from "../utils/json";
 
 /**
  * `tensor-mcp apps` — every registered app with connection status, auth

@@ -7,7 +7,7 @@ import { executeCmd } from "./commands/execute.cmd";
 import { searchCmd } from "./commands/search.cmd";
 import { serveCmd } from "./commands/serve.cmd";
 import { toolAddCmd } from "./commands/tool.cmd";
-import { emitErr } from "./json";
+import { emitErr } from "./utils/json";
 
 const cli = cac("tensor-mcp");
 

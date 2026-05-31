@@ -6,7 +6,7 @@ import {
   OAuthClientStore,
   TokenStore,
 } from "@tensor-mcp/core";
-import { emitErr, emitOk } from "../json";
+import { emitErr, emitOk } from "../utils/json";
 
 /**
  * `tensor-mcp connect <app> [token]` — pairs with the MCP `connect_app`
