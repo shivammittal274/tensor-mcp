@@ -1,10 +1,10 @@
 import type { Catalog } from "../catalog/catalog";
 import { ensureEmbeddings } from "../embeddings/ensure";
 import { getEmbedder } from "../embeddings/embedder";
-import { BM25Search, type ToolIndexable } from "./bm25";
-import { reciprocalRankFusion } from "./rrf";
-import { type ParamSummary, summarizeSchema } from "./schema-summary";
-import { SemanticSearch } from "./semantic";
+import { BM25Search, type ToolIndexable } from "../search/bm25";
+import { reciprocalRankFusion } from "../search/rrf";
+import { type ParamSummary, summarizeSchema } from "../search/schema-summary";
+import { SemanticSearch } from "../search/semantic";
 
 // Tunables — every CLI/MCP knob that affects the search pipeline lives here.
 // Public surface (the SearchRequest below) exposes the same defaults so the

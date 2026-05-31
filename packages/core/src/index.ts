@@ -26,16 +26,12 @@ export {
 } from "./embeddings/ensure";
 
 // ─── meta-tool implementations (what `tensor-mcp serve` exposes) ─────────────
+// Five files, one per CLI verb: apps, connect, disconnect, execute, search.
 export * from "./mcp";
 
-// ─── search (single entry point) ─────────────────────────────────────────────
-export {
-  search,
-  type SearchRequest,
-  type SearchResult,
-  type ToolHit,
-  type MissingConnection,
-} from "./search/search";
+// ─── search algorithm primitives (BM25, semantic, RRF, schema-summary) ───────
+// The public `search()` facade is in ./mcp/search.ts; this barrel only
+// re-exports the schema-summary helper that other consumers might want.
 export {
   summarizeSchema,
   type InputShape,

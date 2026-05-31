@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Catalog, type CatalogTool } from "../src/catalog/catalog";
-import { search } from "../src/search/search";
+import { search } from "../src/mcp/search";
 
 // Real in-memory catalog (libsql via bun:sqlite). No mocks — the search
 // pipeline is too entangled with the BM25 + catalog round-trip to give

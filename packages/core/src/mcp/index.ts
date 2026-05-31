@@ -1,7 +1,7 @@
-// Meta-tool implementations — these are what `tensor-mcp serve` exposes as
-// MCP tools, and what the CLI verbs call into. Public name parity with the
-// CLI: `apps`, `connect`, `disconnect`, `execute`. Search lives next to its
-// algorithm code in `../search/`.
+// The five meta-tools `tensor-mcp serve` exposes — one file each, name
+// parity with the CLI verbs (`apps`, `connect`, `disconnect`, `execute`,
+// `search`). Algorithm primitives that `search` builds on live in
+// `../search/` (BM25 / cosine / RRF / schema-summary).
 export {
   apps,
   type AppRecord,
@@ -25,3 +25,11 @@ export {
   type ExecuteToolRequest,
   type ExecuteToolResult,
 } from "./execute";
+export {
+  search,
+  type MissingConnection,
+  type SearchDeps,
+  type SearchRequest,
+  type SearchResult,
+  type ToolHit,
+} from "./search";
