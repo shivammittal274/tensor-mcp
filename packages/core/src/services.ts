@@ -43,6 +43,10 @@ import type { AuthorizationServerMetadata } from "@modelcontextprotocol/sdk/shar
 import { defineService, type Service } from "./defineService";
 import { remoteMcp } from "./transports/remote";
 import { klavisPython, klavisTypescript } from "./transports/klavis";
+import {
+  actions as slackPipedreamActions,
+  app as slackPipedreamApp,
+} from "./services/local/slack/index.mjs";
 
 // ---- Static OAuth metadata — hardcoded to skip RFC 9728 + RFC 8414 discovery.
 
@@ -196,12 +200,21 @@ export const SERVICES: Record<string, Service> = {
       description:
         "Opens a browser to install the Slack app into your workspace.",
     }),
-    spawn: klavisPython("vendored/slack", {
-      forgeAuthData: (b) => ({
-        access_token: b.access_token,
-        authed_user: { access_token: b.metadata?.slack_user_token ?? "" },
-      }),
-    }),
+    pipedream: {
+      app: slackPipedreamApp,
+      actions: slackPipedreamActions,
+      authAliases: {
+        // Pipedream's slack_v2 component reads `oauth_access_token` for user
+        // calls and `bot_token` for bot calls. tensor-mcp's OAuth bundle
+        // stores the user token as `access_token`; the bot token rides in
+        // metadata when the install yields one.
+        oauth_access_token: (b) => b.access_token,
+        bot_token: (b) =>
+          b.metadata?.bot_token ?? b.metadata?.slack_bot_token ?? "",
+        oauth_uid: (b) => b.metadata?.slack_user_id ?? "",
+        base_url: () => "https://slack.com/api/",
+      },
+    },
   }),
 
   gmail: defineService({
