@@ -7,6 +7,11 @@ export {
   type ToolHit,
 } from "./search-tools";
 export {
+  summarizeSchema,
+  type InputShape,
+  type ParamSummary,
+} from "../search/schema-summary";
+export {
   callTool,
   type CallToolDeps,
   type CallToolRequest,

@@ -1,5 +1,6 @@
 import type { Catalog } from "../catalog/catalog";
 import type { BM25Search, ToolIndexable } from "../search/bm25";
+import { type ParamSummary, summarizeSchema } from "../search/schema-summary";
 
 export interface SearchToolsRequest {
   query: string;
@@ -13,6 +14,10 @@ export interface ToolHit {
   score: number;
   description: string;
   input_schema: unknown;
+  /** Pre-extracted from input_schema. Caller can use these to call the tool
+   *  correctly the first time without parsing the full JSON Schema. */
+  required_params: ParamSummary[];
+  optional_params: ParamSummary[];
   connection_status: "active" | "missing";
 }
 
@@ -32,7 +37,7 @@ export interface SearchToolsDeps {
   isConnected: (service: string) => Promise<boolean>;
 }
 
-const DEFAULT_TOP_K = 5;
+const DEFAULT_TOP_K = 8;
 const MAX_TOP_K = 20;
 
 /**
@@ -63,12 +68,16 @@ export async function searchTools(
     top.map(async (h) => {
       const full = await deps.catalog.get(h.tool.service, h.tool.toolName);
       const connected = await deps.isConnected(h.tool.service);
+      const schema = full?.inputSchema ?? {};
+      const shape = summarizeSchema(schema);
       return {
         service: h.tool.service,
         tool: h.tool.toolName,
         score: h.score,
         description: full?.description ?? "",
-        input_schema: full?.inputSchema ?? {},
+        input_schema: schema,
+        required_params: shape.required,
+        optional_params: shape.optional,
         connection_status: connected ? "active" : "missing",
       };
     }),

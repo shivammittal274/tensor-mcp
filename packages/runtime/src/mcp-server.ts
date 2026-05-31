@@ -35,7 +35,7 @@ export interface RunMcpServerConfig {
 const SEARCH_TOOLS_DEF = {
   name: "search_tools",
   description:
-    "**PREFERRED STARTING POINT** for any user request that might require a third-party tool. Returns top-K tools ranked by BM25+ relevance with their input schemas and connection status. Call this once per user intent before reaching for `call_tool`; refine the query if no result clears a useful score. Stemming-aware ('story' matches 'topstories', 'creating' matches 'create').",
+    "**PREFERRED STARTING POINT** for any user request that might require a third-party tool. Returns top-K tools ranked by BM25+ relevance with full input schemas AND pre-extracted `required_params` + `optional_params` (name, type, description, enum) so you can construct a valid `call_tool` input in ONE shot — no trial-and-error required. Each hit also includes `connection_status`. Stemming-aware ('story' matches 'topstories', 'creating' matches 'create').",
   inputSchema: {
     type: "object" as const,
     required: ["query"],

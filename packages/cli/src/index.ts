@@ -28,10 +28,20 @@ cli.command("show", "List connected services").action(async () => {
 
 cli
   .command("search <query>", "Search the tool catalog")
-  .option("--top-k <n>", "Number of results", { default: 5 })
+  .option("--top-k <n>", "Number of results", { default: 8 })
   .option("--services <list>", "Comma-separated services to restrict to")
+  .option("--schema", "Also print each hit's full JSON input schema")
+  .option("--json", "Emit the full result as JSON (machine-readable)")
   .action(
-    async (query: string, opts: { topK?: number; services?: string }) => {
+    async (
+      query: string,
+      opts: {
+        topK?: number;
+        services?: string;
+        schema?: boolean;
+        json?: boolean;
+      },
+    ) => {
       process.exit(await searchCmd(query, opts));
     },
   );
