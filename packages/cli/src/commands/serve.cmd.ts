@@ -205,6 +205,7 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
             spawnPool: pool,
             getSpawn: (app) => SERVICES[app]?.spawn,
             getRemote: (app) => SERVICES[app]?.remote,
+            getPipedream: (app) => SERVICES[app]?.pipedream,
             tryRefresh: async (app) => {
               const def = SERVICES[app];
               if (!def) throw new Error(`unknown app '${app}'`);

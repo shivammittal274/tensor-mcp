@@ -1,3 +1,9 @@
+import type { PipedreamServiceConfig } from "../defineService";
+import {
+  listPipedreamTools,
+  makeAuthReader,
+  runPipedreamAction,
+} from "../services/adapt/pipedream";
 import {
   connectionIdFor,
   type KeyValueStore,
@@ -33,6 +39,8 @@ export interface ExecuteToolDeps {
   getSpawn: (app: string) => SpawnConfig | undefined;
   /** Returns the app's hosted-MCP descriptor, if any. */
   getRemote?: (app: string) => RemoteMcpConfig | undefined;
+  /** Returns the app's Pipedream-component descriptor, if any. */
+  getPipedream?: (app: string) => PipedreamServiceConfig | undefined;
   /**
    * Silently refresh an OAuth token (uses the SDK's refresh-token grant).
    * Returns the new bundle. Should throw if refresh fails — caller surfaces
@@ -70,15 +78,20 @@ export async function executeTool(
     throw new Error("execute requires `app` and `tool` arguments");
   }
 
-  const remote = deps.getRemote?.(req.app);
-  const spawn = remote ? undefined : deps.getSpawn(req.app);
-  if (!remote && !spawn) {
+  const pipedream = deps.getPipedream?.(req.app);
+  const remote = pipedream ? undefined : deps.getRemote?.(req.app);
+  const spawn = pipedream || remote ? undefined : deps.getSpawn(req.app);
+  if (!pipedream && !remote && !spawn) {
     throw new Error(`unknown app '${req.app}'`);
   }
 
   const initialToken = await deps.tokenStore.get(connectionIdFor(req.app));
   if (!initialToken) {
     throw new Error(`'${req.app}' is not connected`);
+  }
+
+  if (pipedream) {
+    return await executePipedream(req, pipedream, initialToken);
   }
 
   const connect = deps.connectClient ?? connectMcpClient;
@@ -117,4 +130,32 @@ export async function executeTool(
     }
     throw err;
   }
+}
+
+async function executePipedream(
+  req: ExecuteToolRequest,
+  cfg: PipedreamServiceConfig,
+  token: TokenBundle,
+): Promise<ExecuteToolResult> {
+  const descriptor = listPipedreamTools(cfg.actions).find(
+    (t) => t.name === req.tool,
+  );
+  if (!descriptor) {
+    throw new Error(`unknown tool '${req.tool}' for app '${req.app}'`);
+  }
+
+  const readAuth = makeAuthReader(token, cfg.authAliases ?? {});
+  const result = await runPipedreamAction({
+    app: cfg.app,
+    action: descriptor.action,
+    input: req.input ?? {},
+    readAuth,
+  });
+
+  const text = JSON.stringify(
+    { summary: result.summary, result: result.return },
+    null,
+    2,
+  );
+  return { content: [{ type: "text", text }] };
 }

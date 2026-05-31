@@ -1,3 +1,5 @@
+import type { PipedreamServiceConfig } from "../defineService";
+import { listPipedreamTools } from "../services/adapt/pipedream";
 import { defaultAuthHeaders, type RemoteMcpConfig } from "../transports/remote";
 import type { TokenBundle } from "../stores/types";
 import { connectMcpClient } from "../transports/stdio";
@@ -7,10 +9,12 @@ import type { Catalog, CatalogTool } from "./catalog";
 
 export interface IngestServiceConfig {
   service: string;
-  /** Local-subprocess execution. Mutually exclusive with `remote`. */
+  /** Local-subprocess execution. */
   spawn?: SpawnConfig;
-  /** Hosted-MCP execution. Mutually exclusive with `spawn`. */
+  /** Hosted-MCP execution. */
   remote?: RemoteMcpConfig;
+  /** In-process Pipedream component execution. */
+  pipedream?: PipedreamServiceConfig;
   token?: TokenBundle;
   readinessTimeoutMs?: number;
   tensorMcpRoot?: string;
@@ -35,6 +39,17 @@ export async function ingestService(
     access_token: "ingest_only_dummy",
   };
 
+  if (config.pipedream) {
+    const tools = listPipedreamTools(config.pipedream.actions).map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    }));
+    return await persistTools(catalog, config.service, {
+      listTools: async () => tools,
+    });
+  }
+
   if (config.remote) {
     const headers = (config.remote.authHeaders ?? defaultAuthHeaders)(token);
     const client = await connectMcpClient(config.remote.mcpUrl, { headers });
@@ -47,7 +62,7 @@ export async function ingestService(
 
   if (!config.spawn) {
     throw new Error(
-      `ingestService('${config.service}'): exactly one of 'spawn' or 'remote' must be set`,
+      `ingestService('${config.service}'): exactly one of 'spawn', 'remote', or 'pipedream' must be set`,
     );
   }
 
