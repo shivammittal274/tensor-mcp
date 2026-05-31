@@ -223,6 +223,22 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
             spawnPool: pool,
             getSpawn: (s) => config.services[s]?.spawn,
             getRemote: (s) => config.services[s]?.remote,
+            tryRefresh: async (s) => {
+              const def = config.services[s];
+              if (!def) throw new Error(`unknown service '${s}'`);
+              return await def.auth.connect({
+                serviceId: `${s}:default`,
+                tokenStore,
+                oauthClientStore,
+                io: {
+                  openBrowser: async () => {
+                    throw new Error(
+                      `token expired and refresh failed for '${s}' — call connect_service again to re-authenticate`,
+                    );
+                  },
+                },
+              });
+            },
           },
         );
         return { content: result.content, isError: result.isError };

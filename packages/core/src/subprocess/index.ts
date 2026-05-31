@@ -1,6 +1,7 @@
 export { klavisPython, klavisTypescript } from "./klavis";
 export {
   connectMcpClient,
+  looksUnauthorized,
   type McpClientHandle,
   type McpToolDef,
   type McpToolResult,

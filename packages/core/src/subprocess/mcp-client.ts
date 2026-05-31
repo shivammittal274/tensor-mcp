@@ -42,7 +42,8 @@ const UNAUTHORIZED_PATTERNS = [
   /expired[_\s-]?token/i,
 ];
 
-function looksUnauthorized(input: unknown): boolean {
+/** Public — used by call-tool to decide whether to refresh + retry. */
+export function looksUnauthorized(input: unknown): boolean {
   if (input == null) return false;
   let haystack: string;
   if (typeof input === "string") {

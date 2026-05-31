@@ -1,6 +1,10 @@
 import { defaultAuthHeaders, type RemoteMcpConfig } from "../remote-mcp";
 import type { KeyValueStore, TokenBundle } from "../stores/types";
-import { connectMcpClient } from "../subprocess/mcp-client";
+import {
+  connectMcpClient,
+  looksUnauthorized,
+  UnauthorizedToolCallError,
+} from "../subprocess/mcp-client";
 import type { SpawnPool } from "../subprocess/pool";
 import type { SpawnConfig, SpawnedProcess } from "../subprocess/types";
 
@@ -18,17 +22,19 @@ export interface CallToolResult {
 export interface CallToolDeps {
   tokenStore: Pick<KeyValueStore<TokenBundle>, "get">;
   spawnPool: Pick<SpawnPool, "ensure">;
-  /**
-   * Returns the service's local-subprocess descriptor, if any. Mutually
-   * exclusive with `getRemote`.
-   */
+  /** Returns the service's local-subprocess descriptor, if any. */
   getSpawn: (service: string) => SpawnConfig | undefined;
-  /**
-   * Returns the service's hosted-MCP descriptor, if any. Mutually exclusive
-   * with `getSpawn`. Either resolver should return undefined for services
-   * that use the other mode.
-   */
+  /** Returns the service's hosted-MCP descriptor, if any. */
   getRemote?: (service: string) => RemoteMcpConfig | undefined;
+  /**
+   * Silently refresh an OAuth token (uses the SDK's refresh-token grant
+   * under the hood). Returns the new bundle. Throws if the refresh-token
+   * is also expired — caller is responsible for surfacing "re-run
+   * `tensor-mcp connect <svc>`" to the user.
+   *
+   * No-op signal: undefined here means "don't try to refresh on 401".
+   */
+  tryRefresh?: (service: string) => Promise<TokenBundle>;
   /** Override for tests. Defaults to the real Streamable HTTP MCP client. */
   connectClient?: typeof connectMcpClient;
 }
@@ -43,8 +49,10 @@ export interface CallToolDeps {
  *    MCP URL with the stored token attached as request headers (default:
  *    `Authorization: Bearer <token>`).
  *
- * The MCP client we open here is short-lived. Subprocess lifetime is owned
- * by the SpawnPool; remote mode has no subprocess to manage.
+ * On 401 (`UnauthorizedToolCallError`) for a `remote` service: silently
+ * refresh the OAuth token via `tryRefresh` and retry once. Subprocess
+ * services don't refresh today — their token is baked into the spawn's
+ * AUTH_DATA env, so refresh would need a kill+respawn cycle (TODO).
  */
 export async function callTool(
   req: CallToolRequest,
@@ -60,31 +68,49 @@ export async function callTool(
     throw new Error(`unknown service '${req.service}'`);
   }
 
-  const token = await deps.tokenStore.get(`${req.service}:default`);
-  if (!token) {
+  const initialToken = await deps.tokenStore.get(`${req.service}:default`);
+  if (!initialToken) {
     throw new Error(`'${req.service}' is not connected`);
   }
 
   const connect = deps.connectClient ?? connectMcpClient;
 
-  let mcpUrl: string;
-  let headers: Record<string, string> | undefined;
-  let handle: SpawnedProcess | undefined;
+  const attempt = async (token: TokenBundle): Promise<CallToolResult> => {
+    let mcpUrl: string;
+    let headers: Record<string, string> | undefined;
+    let handle: SpawnedProcess | undefined;
 
-  if (remote) {
-    mcpUrl = remote.mcpUrl;
-    headers = (remote.authHeaders ?? defaultAuthHeaders)(token);
-  } else if (spawn) {
-    handle = await deps.spawnPool.ensure(req.service, spawn, token);
-    mcpUrl = handle.mcpUrl;
-  } else {
-    throw new Error("unreachable");
-  }
+    if (remote) {
+      mcpUrl = remote.mcpUrl;
+      headers = (remote.authHeaders ?? defaultAuthHeaders)(token);
+    } else if (spawn) {
+      handle = await deps.spawnPool.ensure(req.service, spawn, token);
+      mcpUrl = handle.mcpUrl;
+    } else {
+      throw new Error("unreachable");
+    }
 
-  const client = await connect(mcpUrl, headers ? { headers } : undefined);
+    const client = await connect(mcpUrl, headers ? { headers } : undefined);
+    try {
+      return await client.callTool(req.tool, req.input ?? {});
+    } finally {
+      await client.close();
+    }
+  };
+
   try {
-    return await client.callTool(req.tool, req.input ?? {});
-  } finally {
-    await client.close();
+    return await attempt(initialToken);
+  } catch (err) {
+    // For remote services, refresh & retry on any 401-shaped error —
+    // it could fire during MCP `initialize` (raw transport error) OR
+    // during `tools/call` (wrapped as UnauthorizedToolCallError). Both
+    // hit the same expired-token root cause.
+    const unauthorized =
+      err instanceof UnauthorizedToolCallError || looksUnauthorized(err);
+    if (unauthorized && remote && deps.tryRefresh) {
+      const newToken = await deps.tryRefresh(req.service);
+      return await attempt(newToken);
+    }
+    throw err;
   }
 }

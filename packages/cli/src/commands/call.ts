@@ -1,4 +1,10 @@
-import { callTool, SpawnPool, TokenStore } from "@tensor-mcp/core";
+import {
+  callTool,
+  ConnectionsStore,
+  OAuthClientStore,
+  SpawnPool,
+  TokenStore,
+} from "@tensor-mcp/core";
 import { getService } from "@tensor-mcp/services";
 
 export async function callCmd(
@@ -25,6 +31,7 @@ export async function callCmd(
   }
 
   const tokenStore = new TokenStore({});
+  const oauthClientStore = new OAuthClientStore({});
   const pool = new SpawnPool();
 
   try {
@@ -35,6 +42,29 @@ export async function callCmd(
         spawnPool: pool,
         getSpawn: (s) => (s === service ? def.spawn : undefined),
         getRemote: (s) => (s === service ? def.remote : undefined),
+        tryRefresh: async (s) => {
+          if (s !== service) {
+            throw new Error(`refresh not wired for '${s}'`);
+          }
+          // Re-run auth.connect with a non-interactive openBrowser. The
+          // SDK consults the saved refresh_token first; if it works,
+          // returns AUTHORIZED silently and our throw-openBrowser is
+          // never hit. If the refresh_token is also expired, the SDK
+          // tries to redirect → our throw fires → user sees a clear
+          // "re-run connect" message instead of an unexpected browser.
+          return await def.auth.connect({
+            serviceId: `${service}:default`,
+            tokenStore,
+            oauthClientStore,
+            io: {
+              openBrowser: async () => {
+                throw new Error(
+                  `token expired and refresh failed — run \`tensor-mcp connect ${service}\` to re-authenticate`,
+                );
+              },
+            },
+          });
+        },
       },
     );
 
