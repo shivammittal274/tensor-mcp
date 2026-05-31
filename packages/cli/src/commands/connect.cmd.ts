@@ -26,10 +26,10 @@ export async function connectCmd(
     return emitErr(`unknown app '${app}'`);
   }
 
-  const tokenStore = new TokenStore({});
-  const oauthClientStore = new OAuthClientStore({});
-  const connections = new ConnectionsStore({});
-  const catalog = new Catalog({});
+  const tokenStore = new TokenStore();
+  const oauthClientStore = new OAuthClientStore();
+  const connections = new ConnectionsStore();
+  const catalog = new Catalog();
   await catalog.open();
 
   // Stderr breadcrumbs so the user sees what's happening during OAuth/ingest.

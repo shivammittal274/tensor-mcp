@@ -18,6 +18,8 @@ import {
   SpawnPool,
   TokenStore,
 } from "@tensor-mcp/core";
+import { asMcpRequest } from "../utils/args";
+import { VERSION } from "../version";
 
 // ─── Meta-tool definitions ───────────────────────────────────────────────────
 // One per CLI verb. Schemas match exactly — agents calling the MCP tool
@@ -162,16 +164,16 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
   await catalog.open();
 
   log("opening stores...");
-  const tokenStore = new TokenStore({});
-  const oauthClientStore = new OAuthClientStore({});
-  const connections = new ConnectionsStore({});
+  const tokenStore = new TokenStore();
+  const oauthClientStore = new OAuthClientStore();
+  const connections = new ConnectionsStore();
 
   log("creating spawn pool...");
   const pool = new SpawnPool();
 
   log("creating MCP server...");
   const server = new Server(
-    { name: "tensor-mcp", version: "0.3.0" },
+    { name: "tensor-mcp", version: VERSION },
     { capabilities: { tools: {} } },
   );
 
@@ -190,14 +192,14 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
       if (name === "search_tools") {
         const result = await search(
           catalog,
-          (args ?? {}) as unknown as Parameters<typeof search>[1],
+          asMcpRequest<Parameters<typeof search>[1]>(args),
           { isConnected },
         );
         return ok(result);
       }
       if (name === "execute") {
         const result = await executeTool(
-          (args ?? {}) as unknown as Parameters<typeof executeTool>[0],
+          asMcpRequest<Parameters<typeof executeTool>[0]>(args),
           {
             tokenStore,
             spawnPool: pool,
@@ -233,7 +235,7 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
       }
       if (name === "connect_app") {
         const result = await connectApp(
-          (args ?? {}) as unknown as Parameters<typeof connectApp>[0],
+          asMcpRequest<Parameters<typeof connectApp>[0]>(args),
           {
             getService: (id) => SERVICES[id],
             tokenStore,
@@ -247,7 +249,7 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
       }
       if (name === "disconnect_app") {
         const result = await disconnectApp(
-          (args ?? {}) as unknown as Parameters<typeof disconnectApp>[0],
+          asMcpRequest<Parameters<typeof disconnectApp>[0]>(args),
           {
             getService: (id) => SERVICES[id],
             tokenStore,

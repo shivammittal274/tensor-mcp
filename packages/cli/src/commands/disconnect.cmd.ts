@@ -16,9 +16,9 @@ export async function disconnectCmd(app: string): Promise<number> {
   if (!getService(app)) {
     return emitErr(`unknown app '${app}'`);
   }
-  const tokenStore = new TokenStore({});
-  const oauthClientStore = new OAuthClientStore({});
-  const connections = new ConnectionsStore({});
+  const tokenStore = new TokenStore();
+  const oauthClientStore = new OAuthClientStore();
+  const connections = new ConnectionsStore();
 
   try {
     const result = await disconnectApp(

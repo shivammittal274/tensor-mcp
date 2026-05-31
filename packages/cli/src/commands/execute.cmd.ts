@@ -34,8 +34,8 @@ export async function executeCmd(
     }
   }
 
-  const tokenStore = new TokenStore({});
-  const oauthClientStore = new OAuthClientStore({});
+  const tokenStore = new TokenStore();
+  const oauthClientStore = new OAuthClientStore();
   const pool = new SpawnPool();
 
   try {

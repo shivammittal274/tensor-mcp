@@ -8,6 +8,7 @@ import { searchCmd } from "./commands/search.cmd";
 import { serveCmd } from "./commands/serve.cmd";
 import { toolAddCmd } from "./commands/tool.cmd";
 import { emitErr } from "./utils/json";
+import { VERSION } from "./version";
 
 const cli = cac("tensor-mcp");
 
@@ -84,7 +85,7 @@ cli
   });
 
 cli.help();
-cli.version("0.3.0");
+cli.version(VERSION);
 
 // cac throws a `CACError` (sub-class of Error, name === "CACError") for
 // malformed invocations — missing required args, unknown options, etc.

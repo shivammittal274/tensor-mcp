@@ -14,9 +14,9 @@ import { emitErr, emitOk } from "../utils/json";
  * Always JSON. No flags — keep the surface minimal.
  */
 export async function appsCmd(): Promise<number> {
-  const catalog = new Catalog({});
+  const catalog = new Catalog();
   await catalog.open();
-  const connections = new ConnectionsStore({});
+  const connections = new ConnectionsStore();
   try {
     const records = await apps({
       listAllServices: () => listServices(),

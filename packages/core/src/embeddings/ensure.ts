@@ -60,8 +60,3 @@ export function embeddingsCacheDir(): string {
   if (override) return override;
   return join(homedir(), ".tensor-mcp", "embeddings");
 }
-
-/** Test helper — clears the memoized probe. Not on the public CLI surface. */
-export function _resetEnsureEmbeddingsCache(): void {
-  memoized = null;
-}

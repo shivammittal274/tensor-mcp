@@ -26,9 +26,9 @@ export async function searchCmd(
   query: string,
   opts: SearchCmdOpts,
 ): Promise<number> {
-  const catalog = new Catalog({});
+  const catalog = new Catalog();
   await catalog.open();
-  const connections = new ConnectionsStore({});
+  const connections = new ConnectionsStore();
   try {
     const result = await search(
       catalog,
