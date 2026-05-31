@@ -43,19 +43,48 @@ export function getEmbedder(): Promise<Embedder> {
   return initPromise;
 }
 
+const DEBUG = process.env.TENSOR_MCP_DEBUG_EMBEDDER === "1";
+const dlog = (msg: string): void => {
+  if (DEBUG) process.stderr.write(`[embedder] ${msg}\n`);
+};
+
 async function init(): Promise<Embedder> {
+  dlog("init: start");
   const probe = await ensureEmbeddings();
+  dlog(`init: probe = ${JSON.stringify(probe)}`);
   if (!probe.available || !probe.cacheDir || !probe.runtimePath) {
     throw new EmbedderUnavailableError(probe.reason ?? "unknown");
   }
 
   await stageRuntimeForLoader(probe.runtimePath, probe.runtimeFilename ?? "");
+  dlog("init: stage complete; importing fastembed");
 
-  const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
-  const model = await FlagEmbedding.init({
-    model: EmbeddingModel.AllMiniLML6V2,
-    cacheDir: probe.cacheDir,
-  });
+  let FlagEmbedding: unknown, EmbeddingModel: unknown;
+  try {
+    const mod = await import("fastembed");
+    FlagEmbedding = (mod as Record<string, unknown>).FlagEmbedding;
+    EmbeddingModel = (mod as Record<string, unknown>).EmbeddingModel;
+    dlog("init: fastembed imported");
+  } catch (err) {
+    dlog(`init: fastembed import threw: ${(err as Error).message}`);
+    throw err;
+  }
+
+  let model: { embed: (texts: string[], n: number) => AsyncIterable<unknown> };
+  try {
+    model = await (
+      FlagEmbedding as {
+        init(opts: { model: unknown; cacheDir: string }): Promise<typeof model>;
+      }
+    ).init({
+      model: (EmbeddingModel as Record<string, unknown>).AllMiniLML6V2,
+      cacheDir: probe.cacheDir,
+    });
+    dlog("init: FlagEmbedding.init complete");
+  } catch (err) {
+    dlog(`init: FlagEmbedding.init threw: ${(err as Error).message}`);
+    throw err;
+  }
 
   return {
     dim: 384,
@@ -100,15 +129,17 @@ async function stageRuntimeForLoader(
 ): Promise<void> {
   const dir = tmpdir();
   const dst = join(dir, filename);
+  dlog(`stage: tmpdir=${dir}`);
+  dlog(`stage: src=${src} → dst=${dst} (exists: ${existsSync(dst)})`);
   if (!existsSync(dst)) {
     copyFileSync(src, dst);
+    dlog(`stage: copied dylib`);
   }
   if (filename.endsWith(".so.1.21.0")) {
     const sonameDst = join(dir, "libonnxruntime.so.1");
     if (!existsSync(sonameDst)) copyFileSync(src, sonameDst);
   }
   if (platform() === "win32") {
-    // DirectML.dll lives next to onnxruntime.dll in our cache layout.
     const directmlSrc = join(dirname(src), "DirectML.dll");
     const directmlDst = join(dir, "DirectML.dll");
     if (existsSync(directmlSrc) && !existsSync(directmlDst)) {

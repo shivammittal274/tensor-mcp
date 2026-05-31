@@ -5,25 +5,43 @@ on:
     tags:
       - 'v*.*.*'
 
-# Single Linux runner cross-compiles every supported target. Bun resolves
-# native-binding `require()` paths (e.g. onnxruntime-node's per-arch
-# napi-v3/<platform>/<arch>/*.node) using the `--target=` flag, so a
-# cross-compiled binary picks the correct native binding. Verified
-# empirically against darwin-arm64/x64, linux-x64/arm64, windows-x64 from
-# a darwin-arm64 host before adopting this layout.
+# Matrix build with NATIVE runners per target.
 #
-# Why not the matrix-of-5-runners pattern that's idiomatic for native CI?
-# tensor-mcp no longer embeds platform-specific dylibs at build time — the
-# onnxruntime dylib + model are downloaded on first use from the
-# `embeddings-v1` release. Every target is a pure cross-compile from
-# identical sources, so any host works.
+# Why not cross-compile every target from a single Linux runner (the old
+# layout)? Bun's `--target=darwin-…` cross-compile from Ubuntu produces a
+# darwin binary where dyld can't resolve `@rpath/libonnxruntime…` for the
+# bundled onnxruntime-node napi-v3 .node binding at runtime. Result:
+# semantic search silently falls back to BM25 on every cross-compiled
+# darwin binary we shipped through v0.4.1. Verified empirically: a
+# native darwin-arm64 build of the same commit produces a binary where
+# semantic ranking fires; the Linux→darwin cross-compiled binary doesn't.
+#
+# So: each platform builds natively, uploads its binary as an artifact,
+# and a final `release` job collects everything + publishes the release.
 
 jobs:
-  release:
-    name: build + release
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-14
+            artifact: tensor-mcp-darwin-arm64
+          - target: darwin-x64
+            runner: macos-13
+            artifact: tensor-mcp-darwin-x64
+          - target: linux-x64
+            runner: ubuntu-24.04
+            artifact: tensor-mcp-linux-x64
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            artifact: tensor-mcp-linux-arm64
+          - target: windows-x64
+            runner: windows-latest
+            artifact: tensor-mcp-windows-x64.exe
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,23 +55,47 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            bun-${{ runner.os }}-
+            bun-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build every target
-        run: bun run scripts/build.ts --all
+      - name: Build ${{ matrix.target }}
+        run: bun run scripts/build.ts --target=${{ matrix.target }}
 
-      - name: Combined SHA256SUMS.txt
-        working-directory: dist
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 1
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten into dist/ + compute SHA256SUMS.txt
         run: |
           set -euo pipefail
+          mkdir -p dist
+          # Each artifact downloaded as its own directory containing one file.
+          find artifacts -type f -exec cp {} dist/ \;
+          cd dist
           : > SHA256SUMS.txt
           for f in tensor-mcp-*; do
-            # Skip the host-symlink convenience file.
             if [ -L "$f" ]; then continue; fi
             sha256sum "$f" >> SHA256SUMS.txt
           done
