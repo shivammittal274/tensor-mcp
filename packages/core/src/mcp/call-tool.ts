@@ -1,5 +1,5 @@
 import { defaultAuthHeaders, type RemoteMcpConfig } from "../remote-mcp";
-import type { KeyValueStore, TokenBundle } from "../stores/types";
+import { connectionIdFor, type KeyValueStore, type TokenBundle } from "../stores/types";
 import {
   connectMcpClient,
   looksUnauthorized,
@@ -68,7 +68,7 @@ export async function callTool(
     throw new Error(`unknown service '${req.service}'`);
   }
 
-  const initialToken = await deps.tokenStore.get(`${req.service}:default`);
+  const initialToken = await deps.tokenStore.get(connectionIdFor(req.service));
   if (!initialToken) {
     throw new Error(`'${req.service}' is not connected`);
   }

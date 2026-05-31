@@ -3,7 +3,7 @@ import type { Service } from "../service";
 import { ingestService } from "../catalog/ingest";
 import type { Catalog } from "../catalog/catalog";
 import type { ConnectionRecord } from "../stores/connections-store";
-import type { KeyValueStore, TokenBundle } from "../stores/types";
+import { connectionIdFor, type KeyValueStore, type TokenBundle } from "../stores/types";
 
 export interface ConnectServiceRequest {
   /** Service slug (e.g. "linear"). */
@@ -78,7 +78,7 @@ export async function connectService(
     };
   }
 
-  const connectionId = `${req.service}:default`;
+  const connectionId = connectionIdFor(req.service);
   let bundle: TokenBundle;
   try {
     bundle = await def.auth.connect({

@@ -8,6 +8,7 @@ import {
   BM25Search,
   callTool,
   Catalog,
+  connectionIdFor,
   connectService,
   ConnectionsStore,
   disconnectService,
@@ -215,7 +216,7 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
             embedQuery: indexes.semantic ? embedQueryLazy : undefined,
             catalog,
             isConnected: async (service) =>
-              (await connections.get(`${service}:default`)) !== null,
+              (await connections.get(connectionIdFor(service))) !== null,
           },
         );
         return ok(result);
@@ -236,7 +237,7 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
               const def = config.services[s];
               if (!def) throw new Error(`unknown service '${s}'`);
               return await def.auth.connect({
-                serviceId: `${s}:default`,
+                serviceId: connectionIdFor(s),
                 tokenStore,
                 oauthClientStore,
                 io: {
@@ -256,7 +257,7 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
         const result = await listServices({
           listAllServices: () => Object.values(config.services),
           isConnected: async (service) =>
-            (await connections.get(`${service}:default`)) !== null,
+            (await connections.get(connectionIdFor(service))) !== null,
           catalog,
         });
         return ok(result);

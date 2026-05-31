@@ -1,5 +1,6 @@
 import {
   callTool,
+  connectionIdFor,
   ConnectionsStore,
   OAuthClientStore,
   SpawnPool,
@@ -53,7 +54,7 @@ export async function callCmd(
           // tries to redirect → our throw fires → user sees a clear
           // "re-run connect" message instead of an unexpected browser.
           return await def.auth.connect({
-            serviceId: `${service}:default`,
+            serviceId: connectionIdFor(service),
             tokenStore,
             oauthClientStore,
             io: {

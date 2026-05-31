@@ -40,3 +40,13 @@ export interface TokenBundle {
   scopes?: string[];
   metadata?: Record<string, string>;
 }
+
+// Composite key for a service's credential bundle, OAuth client info, and
+// connection metadata. Only `default` is used today; the `account` slot is
+// reserved so a future multi-account patch ("connect github as personal vs
+// work") lands without breaking the existing key layout. Every consumer must
+// go through this helper — never hand-write `${service}:default`, or the
+// two ends will silently drift.
+export function connectionIdFor(service: string, account = "default"): string {
+  return `${service}:${account}`;
+}

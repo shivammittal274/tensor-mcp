@@ -1,6 +1,7 @@
 import {
   BM25Search,
   Catalog,
+  connectionIdFor,
   ConnectionsStore,
   getEmbedder,
   type ParamSummary,
@@ -90,7 +91,7 @@ export async function searchCmd(
         embedQuery,
         catalog,
         isConnected: async (s) =>
-          (await connections.get(`${s}:default`)) !== null,
+          (await connections.get(connectionIdFor(s))) !== null,
       },
     );
 

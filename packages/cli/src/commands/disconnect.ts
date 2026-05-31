@@ -1,4 +1,5 @@
 import {
+  connectionIdFor,
   ConnectionsStore,
   OAuthClientStore,
   TokenStore,
@@ -14,7 +15,7 @@ export async function disconnectCmd(service: string): Promise<number> {
     return 1;
   }
 
-  const connectionId = `${service}:default`;
+  const connectionId = connectionIdFor(service);
   const tokenStore = new TokenStore({});
   const oauthClientStore = new OAuthClientStore({});
   const connections = new ConnectionsStore({});

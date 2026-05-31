@@ -1,4 +1,5 @@
 import {
+  connectionIdFor,
   ConnectionsStore,
   OAuthClientStore,
   TokenStore,
@@ -15,6 +16,7 @@ export async function connectCmd(service: string): Promise<number> {
   const tokenStore = new TokenStore({});
   const oauthClientStore = new OAuthClientStore({});
   const connections = new ConnectionsStore({});
+  const connectionId = connectionIdFor(service);
 
   process.stderr.write(`Connecting ${def.displayName}...\n`);
   const { instructions } = def.auth.describe();
@@ -29,14 +31,14 @@ export async function connectCmd(service: string): Promise<number> {
 
   try {
     const bundle = await def.auth.connect({
-      serviceId: `${service}:default`,
+      serviceId: connectionId,
       tokenStore,
       oauthClientStore,
     });
 
-    await connections.set(`${service}:default`, {
+    await connections.set(connectionId, {
       service,
-      connectionId: `${service}:default`,
+      connectionId,
       displayName: def.displayName,
       connectedAt: Date.now(),
     });

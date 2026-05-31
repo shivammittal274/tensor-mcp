@@ -1,3 +1,4 @@
+export { connectionIdFor } from "./types";
 export type { KeyValueStore, TokenBundle } from "./types";
 export { TokenStore } from "./token-store";
 export { OAuthClientStore } from "./oauth-client-store";

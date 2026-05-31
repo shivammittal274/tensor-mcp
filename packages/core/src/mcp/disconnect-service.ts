@@ -1,7 +1,7 @@
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { Service } from "../service";
 import type { ConnectionRecord } from "../stores/connections-store";
-import type { KeyValueStore, TokenBundle } from "../stores/types";
+import { connectionIdFor, type KeyValueStore, type TokenBundle } from "../stores/types";
 
 export interface DisconnectServiceRequest {
   service: string;
@@ -38,7 +38,7 @@ export async function disconnectService(
     throw new Error(`unknown service '${req.service}'`);
   }
 
-  const connectionId = `${req.service}:default`;
+  const connectionId = connectionIdFor(req.service);
   const existing = await deps.connections.get(connectionId);
   if (!existing) {
     return {
