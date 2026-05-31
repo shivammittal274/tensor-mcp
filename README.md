@@ -24,6 +24,16 @@ Hosted MCP aggregators (Klavis cloud, Composio, Pipedream) store your OAuth toke
 
 tensor-mcp runs the same Klavis MCP servers (Apache 2.0) as local subprocesses, with tokens stored in your OS keychain via vendored Composio `cli-keyring` (ISC). The aggregator never touches your credentials.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shivammittal274/tensor-mcp/main/install.sh | sh
+```
+
+Windows users: grab the `.exe` from the [latest release](https://github.com/shivammittal274/tensor-mcp/releases/latest) — the curl|sh script doesn't support Windows (WSL works).
+
+Paranoid? Each release ships `SHA256SUMS.txt`; verify the binary with `sha256sum tensor-mcp-<plat>-<arch>` and compare.
+
 ## Quick start
 
 ```bash
