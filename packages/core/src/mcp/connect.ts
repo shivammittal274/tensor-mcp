@@ -1,4 +1,5 @@
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { AuthIO } from "../auth/types";
 import { ingestService } from "../catalog/ingest";
 import type { Catalog } from "../catalog/catalog";
 import type { Service } from "../defineService";
@@ -42,6 +43,13 @@ export interface ConnectAppDeps {
   onCatalogChanged?: () => Promise<void> | void;
   /** Override for `Service.spawn`'s `vendorDir` resolution. */
   tensorMcpRoot?: string;
+  /**
+   * Optional override for the auth strategy's IO — used by the MCP serve
+   * path to capture the OAuth redirect URL instead of spawning a browser
+   * from inside the host's subprocess. CLI leaves this unset; the strategy
+   * falls back to `defaultOpenBrowser`.
+   */
+  io?: AuthIO;
 }
 
 /**
@@ -90,9 +98,7 @@ export async function connectApp(
       serviceId: connectionId,
       tokenStore: deps.tokenStore,
       oauthClientStore: deps.oauthClientStore,
-      io: req.token
-        ? { promptUser: async () => req.token as string }
-        : undefined,
+      io: mergeIO(deps.io, req.token),
     });
   } catch (err) {
     const msg = (err as Error).message;
@@ -131,5 +137,23 @@ export async function connectApp(
     display_name: def.displayName,
     auth_method: method,
     tools_indexed,
+  };
+}
+
+// Compose an AuthIO from the optional caller override plus the pasted-token
+// shortcut. The caller's `openBrowser` wins (lets the MCP path intercept the
+// URL), `promptUser` defaults to returning the pasted token when one was
+// supplied — keeps the PAT/API-key flow working without a TTY.
+function mergeIO(
+  override: AuthIO | undefined,
+  pastedToken: string | undefined,
+): AuthIO | undefined {
+  if (!override && !pastedToken) return undefined;
+  return {
+    openBrowser: override?.openBrowser,
+    awaitCallback: override?.awaitCallback,
+    promptUser:
+      override?.promptUser ??
+      (pastedToken ? async () => pastedToken : undefined),
   };
 }

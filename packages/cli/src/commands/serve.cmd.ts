@@ -97,10 +97,10 @@ const CONNECT_APP_DEF = {
   name: "connect_app",
   description:
     "Connect an app so its tools become callable. Behavior depends on the app's `auth_method`:\n" +
-    "• 'oauth-dcr' / 'oauth-static': opens the user's browser to complete OAuth — IGNORE the `token` arg and wait up to 5 minutes.\n" +
+    "• 'oauth-dcr' / 'oauth-static': returns `{status: 'awaiting_user', auth_url}` immediately. Surface the URL to the user; the local callback server waits up to 5 minutes for them to authenticate. After they finish, poll `list_apps` until `connected: true`.\n" +
     "• 'pat' / 'api-key': pass the user-provided credential as `token`. Without `token`, returns `status: 'needs_token'` with the URL where the user generates one.\n" +
     "• 'no-auth': just connect; `token` ignored.\n" +
-    "After success, search index refreshes — re-run `search_tools` to see the new tools.",
+    "On success, the catalog grows and `search_tools` immediately picks up the new tools.",
   inputSchema: {
     type: "object" as const,
     required: ["app"],
@@ -234,7 +234,7 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
         return ok(result);
       }
       if (name === "connect_app") {
-        const result = await connectApp(
+        const result = await handleConnectAppMcp(
           asMcpRequest<Parameters<typeof connectApp>[0]>(args),
           {
             getService: (id) => SERVICES[id],
@@ -342,4 +342,100 @@ export async function serveCmd(): Promise<number> {
     process.stderr.write(`tensor-mcp serve: ${(err as Error).message}\n`);
     return 1;
   }
+}
+
+/**
+ * Same shape as `ConnectAppResult` but tuned for the MCP serve path's two
+ * extra OAuth outcomes the CLI doesn't produce.
+ */
+interface ConnectAppMcpResult {
+  status:
+    | "connected"
+    | "needs_token"
+    | "not_configured"
+    | "awaiting_user";
+  app: string;
+  display_name: string;
+  auth_method: string;
+  /** When `awaiting_user`: visit this URL in a browser to authenticate. */
+  auth_url?: string;
+  /** When `connected`. */
+  tools_indexed?: number;
+  /** When `needs_token` / `not_configured` / `awaiting_user`. */
+  instructions?: string;
+}
+
+/**
+ * MCP-flavored `connect_app`. Opening a browser from inside the host's
+ * subprocess (Claude Desktop, Cursor, …) is jarring — the user didn't
+ * click anything yet. For OAuth strategies we instead:
+ *
+ *   1. Intercept the redirect URL via an `io.openBrowser` override.
+ *   2. Return `{status: "awaiting_user", auth_url}` immediately to the agent.
+ *   3. Let the rest of `connectApp` (callback wait → token exchange →
+ *      ingest) run in the background; on success the catalog is populated.
+ *   4. The agent polls `list_apps` to discover when the connection is live.
+ *
+ * For PAT / API-key / no-auth strategies, we just call `connectApp` once
+ * and return the result — same as the CLI path.
+ */
+async function handleConnectAppMcp(
+  req: Parameters<typeof connectApp>[0],
+  deps: Omit<Parameters<typeof connectApp>[1], "io">,
+): Promise<ConnectAppMcpResult> {
+  const def = deps.getService(req.app);
+  if (!def) throw new Error(`unknown app '${req.app}'`);
+
+  const method = def.auth.method;
+  const isOAuth = method === "oauth-dcr" || method === "oauth-static";
+
+  if (!isOAuth) {
+    const result = await connectApp(req, deps);
+    return result as ConnectAppMcpResult;
+  }
+
+  // OAuth: race openBrowser interception against the full connect flow.
+  // openBrowser fires synchronously inside auth.connect() before the
+  // callback wait — that's how we get the URL out without blocking.
+  return new Promise<ConnectAppMcpResult>((resolve, reject) => {
+    let resolved = false;
+    const safeResolve = (r: ConnectAppMcpResult): void => {
+      if (resolved) return;
+      resolved = true;
+      resolve(r);
+    };
+
+    const captureUrl = async (url: string): Promise<void> => {
+      safeResolve({
+        status: "awaiting_user",
+        app: req.app,
+        display_name: def.displayName,
+        auth_method: method,
+        auth_url: url,
+        instructions:
+          "Visit auth_url in your browser to authenticate. Once you've completed sign-in, call `list_apps` to confirm the connection landed; the new tools will appear in `search_tools` results immediately after.",
+      });
+    };
+
+    connectApp(req, { ...deps, io: { openBrowser: captureUrl } })
+      .then((finalResult) => {
+        // Either openBrowser already resolved (user finished while the
+        // callback waited), in which case this is a no-op; or the strategy
+        // short-circuited (refresh_token reused) and we resolve now.
+        safeResolve(finalResult as ConnectAppMcpResult);
+      })
+      .catch((err) => {
+        if (resolved) {
+          // Background failure after we returned the URL — log and forget.
+          // The agent will see `connected: false` in the next `list_apps`.
+          process.stderr.write(
+            `tensor-mcp serve: background OAuth for '${req.app}' failed: ${
+              (err as Error).message
+            }\n`,
+          );
+          return;
+        }
+        reject(err);
+      });
+  });
 }
