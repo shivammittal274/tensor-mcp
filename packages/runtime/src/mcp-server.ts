@@ -11,12 +11,15 @@ import {
   connectService,
   ConnectionsStore,
   disconnectService,
+  getEmbedder,
   listServices,
   OAuthClientStore,
   searchTools,
+  SemanticSearch,
   type Service,
   SpawnPool,
   TokenStore,
+  type ToolIndexable,
 } from "@tensor-mcp/core";
 
 export interface RunMcpServerConfig {
@@ -173,10 +176,14 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
   // Mutable so connect_service / disconnect_service can swap in a freshly
   // rebuilt index after catalog changes — agents in the same MCP session
   // see new tools without reconnecting Claude Desktop.
-  let searchIndex = await buildIndex(catalog);
+  let indexes = await buildIndexes(catalog);
   const rebuildIndex = async () => {
-    searchIndex = await buildIndex(catalog);
-    log(`search index rebuilt`);
+    indexes = await buildIndexes(catalog);
+    log(`search indexes rebuilt`);
+  };
+  const embedQueryLazy = async (q: string): Promise<Float32Array> => {
+    const embedder = await getEmbedder();
+    return (await embedder.embed([q]))[0];
   };
 
   log("creating spawn pool...");
@@ -203,7 +210,9 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
             services?: string[];
           },
           {
-            searchIndex,
+            searchIndex: indexes.bm25,
+            semanticIndex: indexes.semantic,
+            embedQuery: indexes.semantic ? embedQueryLazy : undefined,
             catalog,
             isConnected: async (service) =>
               (await connections.get(`${service}:default`)) !== null,
@@ -344,18 +353,43 @@ export async function runMcpServer(config: RunMcpServerConfig): Promise<void> {
   catalog.close();
 }
 
-async function buildIndex(catalog: Catalog) {
+interface SearchIndexes {
+  bm25: BM25Search<ToolIndexable>;
+  /** undefined when no tools have embeddings yet (e.g. nothing connected). */
+  semantic?: SemanticSearch<ToolIndexable>;
+}
+
+async function buildIndexes(catalog: Catalog): Promise<SearchIndexes> {
   const tools = await catalog.listAll();
-  const idx = new BM25Search(
-    tools.map((t) => ({
+  const indexable: ToolIndexable[] = tools.map((t) => ({
+    service: t.service,
+    toolName: t.toolName,
+    description: t.description,
+  }));
+  const bm25 = new BM25Search(indexable);
+  const serviceCount = new Set(tools.map((t) => t.service)).size;
+  log(`BM25 indexed ${tools.length} tools across ${serviceCount} services`);
+
+  const withVecs = tools.filter((t) => t.embedding);
+  if (withVecs.length === tools.length && tools.length > 0) {
+    const indexableForSem: ToolIndexable[] = withVecs.map((t) => ({
       service: t.service,
       toolName: t.toolName,
       description: t.description,
-    })),
-  );
-  const serviceCount = new Set(tools.map((t) => t.service)).size;
-  log(`indexed ${tools.length} tools across ${serviceCount} services`);
-  return idx;
+    }));
+    const semantic = new SemanticSearch(
+      indexableForSem,
+      withVecs.map((t) => t.embedding!),
+    );
+    log(`semantic index ready (${withVecs.length} vectors)`);
+    return { bm25, semantic };
+  }
+  if (tools.length > 0) {
+    log(
+      `semantic index disabled: ${tools.length - withVecs.length} tool(s) missing embeddings — re-run connect to backfill`,
+    );
+  }
+  return { bm25 };
 }
 
 function ok(value: unknown) {

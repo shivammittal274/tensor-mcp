@@ -1,6 +1,7 @@
 export {
   searchTools,
   type MissingConnection,
+  type Ranker,
   type SearchToolsDeps,
   type SearchToolsRequest,
   type SearchToolsResult,

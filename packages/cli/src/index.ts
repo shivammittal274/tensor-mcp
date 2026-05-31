@@ -33,6 +33,10 @@ cli
   .command("search <query>", "Search the tool catalog")
   .option("--top-k <n>", "Number of results", { default: 8 })
   .option("--services <list>", "Comma-separated services to restrict to")
+  .option(
+    "--ranker <name>",
+    "Ranker: rrf (default, fused BM25+semantic) / bm25 / semantic",
+  )
   .option("--schema", "Also print each hit's full JSON input schema")
   .option("--json", "Emit the full result as JSON (machine-readable)")
   .action(
@@ -41,6 +45,7 @@ cli
       opts: {
         topK?: number;
         services?: string;
+        ranker?: "rrf" | "bm25" | "semantic";
         schema?: boolean;
         json?: boolean;
       },

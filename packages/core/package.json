@@ -20,6 +20,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tensor-mcp/keyring": "workspace:*",
+    "fastembed": "^2.1.0",
     "wink-porter2-stemmer": "^2.0.1"
   },
   "devDependencies": {

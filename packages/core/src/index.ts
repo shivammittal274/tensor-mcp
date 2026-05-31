@@ -13,6 +13,13 @@ export type { AuthorizationServerMetadata } from "@modelcontextprotocol/sdk/shar
 export * from "./catalog";
 export * from "./mcp";
 export * from "./search";
+export { SemanticSearch } from "./search/semantic";
+export {
+  reciprocalRankFusion,
+  type FusionResult,
+  type RankedItem,
+} from "./search/rrf";
+export { getEmbedder, type Embedder } from "./embeddings/embedder";
 export {
   defaultAuthHeaders,
   remoteMcp,
