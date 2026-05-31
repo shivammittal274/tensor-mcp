@@ -51,15 +51,45 @@ Tokens land in your OS keychain (Security.framework / libsecret) — they never 
 ## CLI reference
 
 ```
-tensor-mcp connect <service>     # OAuth / PAT / API key → store in OS keychain → ingest tool catalog
+tensor-mcp connect <service>     # OAuth / PAT / API key → OS keychain → ingest tool catalog
 tensor-mcp disconnect <service>  # Remove credentials (catalog rows stay)
-tensor-mcp show                  # List connected services
-tensor-mcp search <query>        # BM25+ stemmed search over the tool catalog
-tensor-mcp call <svc> <tool>     # Execute one tool directly (debug aid)
+tensor-mcp show                  # List connected services (--json for machine-readable)
+tensor-mcp search <query>        # BM25+ stemmed search; --json / --schema for structured output
+tensor-mcp call <svc> <tool>     # Execute one tool directly
 tensor-mcp serve                 # MCP stdio server (hosts launch this)
 tensor-mcp tool add <host>       # Wire tensor-mcp into a host MCP client
                                  # hosts: claude-desktop, claude-code, cursor, vscode, gemini, codex
 ```
+
+### Search — what an agent gets
+
+`search` is the primary discovery verb. Every hit comes back with the full
+schema agents need to call the tool correctly on the first attempt:
+
+```
+✓ github  github_update_issue  657.369
+    Update an existing issue in a GitHub repository
+    Required:
+      • issue_number (number) — Issue number to update
+      • owner (string) — Repository owner
+      • repo (string) — Repository name
+    Optional:
+      • assignees (array<string>) — New assignees
+      • state (string=open|closed) — New state
+      • title (string), body (string), labels (array<string>), milestone (number)
+```
+
+Flags:
+- `--top-k <n>` — number of hits (default 8, max 20)
+- `--services <a,b>` — restrict to one or more service slugs
+- `--json` — emit the full structured result (every hit includes `service`,
+  `tool`, `description`, `input_schema`, `required_params[]`, `optional_params[]`,
+  each param with `type` / `description` / `enum`, plus `connection_status`)
+- `--schema` — append the full JSON Schema under each hit (in human mode)
+
+Example: `tensor-mcp search "update issue" --services github --top-k 1 --json`
+gives an agent everything it needs to construct a valid `call_tool` input in
+one shot — no trial-and-error required.
 
 ## MCP meta-tools (what agents see)
 

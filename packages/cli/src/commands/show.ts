@@ -1,8 +1,18 @@
 import { ConnectionsStore } from "@tensor-mcp/core";
 
-export async function showCmd(): Promise<number> {
+export interface ShowCmdOpts {
+  /** Emit records as JSON instead of the human table. */
+  json?: boolean;
+}
+
+export async function showCmd(opts: ShowCmdOpts = {}): Promise<number> {
   const connections = new ConnectionsStore({});
   const records = (await connections.list()).map((r) => r.value);
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(records, null, 2)}\n`);
+    return 0;
+  }
 
   if (records.length === 0) {
     process.stdout.write(

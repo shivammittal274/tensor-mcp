@@ -22,9 +22,12 @@ cli
     process.exit(await disconnectCmd(service));
   });
 
-cli.command("show", "List connected services").action(async () => {
-  process.exit(await showCmd());
-});
+cli
+  .command("show", "List connected services")
+  .option("--json", "Emit records as JSON")
+  .action(async (opts: { json?: boolean }) => {
+    process.exit(await showCmd(opts));
+  });
 
 cli
   .command("search <query>", "Search the tool catalog")
