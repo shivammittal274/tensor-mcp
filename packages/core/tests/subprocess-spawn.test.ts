@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { spawnSubprocess } from "../src/subprocess/spawn";
 
 const TENSOR_MCP_ROOT = join(import.meta.dir, "..", "..", "..");
-const LINEAR_CWD = join(TENSOR_MCP_ROOT, "vendored", "linear");
+const VENDORED_CWD = join(TENSOR_MCP_ROOT, "vendored", "hacker_news");
 
 describe("spawnSubprocess", () => {
-  it("boots the Linear server, binds its port, exposes mcpUrl, and kills cleanly", async () => {
+  it("boots a vendored MCP server, binds its port, exposes mcpUrl, and kills cleanly", async () => {
     const handle = await spawnSubprocess({
-      service: "linear",
-      cwd: LINEAR_CWD,
+      service: "hacker_news",
+      cwd: VENDORED_CWD,
       command: [
         "uv",
         "run",
@@ -29,7 +29,7 @@ describe("spawnSubprocess", () => {
     });
 
     try {
-      expect(handle.service).toBe("linear");
+      expect(handle.service).toBe("hacker_news");
       expect(handle.port).toBeGreaterThan(1024);
       expect(handle.port).toBeLessThan(65536);
       expect(handle.pid).toBeGreaterThan(0);
@@ -53,8 +53,8 @@ describe("spawnSubprocess", () => {
 
   it("kill() is idempotent and resolves even after already-killed", async () => {
     const handle = await spawnSubprocess({
-      service: "linear",
-      cwd: LINEAR_CWD,
+      service: "hacker_news",
+      cwd: VENDORED_CWD,
       command: [
         "uv",
         "run",

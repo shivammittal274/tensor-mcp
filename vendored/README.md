@@ -27,10 +27,26 @@ There's no automated sync — services rarely change in incompatible ways, and t
 
 ## Currently vendored
 
-| Service | Language | Vendored at | License |
+| Service | Language | Auth tier | Notes |
 |---|---|---|---|
-| linear | Python 3.12 | see ATTRIBUTION | Apache 2.0 |
-| notion | Python 3.12 | see ATTRIBUTION | Apache 2.0 |
-| jira | TypeScript (Bun) | see ATTRIBUTION | Apache 2.0 |
-| slack | Python 3.12 | see ATTRIBUTION | Apache 2.0 |
-| gmail | TypeScript (Bun) | see ATTRIBUTION | Apache 2.0 |
+| github | Go | PAT | Native Klavis Go server |
+| gmail | TypeScript | Static OAuth | Needs `TENSOR_MCP_GMAIL_CLIENT_ID` |
+| slack | Python | Static OAuth | + AUTH_DATA shim (see slack/ATTRIBUTION.md) |
+| discord, dropbox, hubspot, outlook, google_calendar, google_docs, google_drive, google_sheets | Python/TS | Static OAuth | Need vendor `_CLIENT_ID` env vars |
+| figma, perplexity_ai, tavily, brave_search, openrouter, firecrawl | Python/TS | API key | User pastes a long-lived key |
+| clickup, trello | Python | PAT | User pastes a Personal Access Token |
+| hacker_news | Python | None | Public API, no credentials |
+
+## NOT vendored (Path A — direct hosted-MCP execution)
+
+These vendors host their own MCP servers; tensor-mcp connects to those URLs
+directly with the DCR-issued token as a Bearer header. No local subprocess.
+See `packages/core/src/remote-mcp.ts` and `packages/services/index.ts`.
+
+| Service | Hosted MCP URL |
+|---|---|
+| linear | https://mcp.linear.app/mcp |
+| notion | https://mcp.notion.com/mcp |
+| jira, confluence | https://mcp.atlassian.com/v1/sse |
+| asana | https://mcp.asana.com/sse |
+| cal_com | https://mcp.cal.com/mcp |
