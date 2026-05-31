@@ -1,15 +1,21 @@
 {
   "name": "@tensor-mcp/cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "bin": { "tensor-mcp": "./src/index.ts" },
-  "scripts": { "test": "bun test" },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@tensor-mcp/core": "workspace:*",
-    "@tensor-mcp/services": "workspace:*",
-    "@tensor-mcp/runtime": "workspace:*",
     "cac": "^7.0.0"
   },
-  "devDependencies": { "@types/bun": "latest" }
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "catalog:"
+  }
 }

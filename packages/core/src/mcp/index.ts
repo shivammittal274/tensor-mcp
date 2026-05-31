@@ -1,37 +1,27 @@
+// Meta-tool implementations — these are what `tensor-mcp serve` exposes as
+// MCP tools, and what the CLI verbs call into. Public name parity with the
+// CLI: `apps`, `connect`, `disconnect`, `execute`. Search lives next to its
+// algorithm code in `../search/`.
 export {
-  searchTools,
-  type MissingConnection,
-  type Ranker,
-  type SearchToolsDeps,
-  type SearchToolsRequest,
-  type SearchToolsResult,
-  type ToolHit,
-} from "./search-tools";
+  apps,
+  type AppRecord,
+  type AppsDeps,
+} from "./apps";
 export {
-  summarizeSchema,
-  type InputShape,
-  type ParamSummary,
-} from "../search/schema-summary";
+  connectApp,
+  type ConnectAppDeps,
+  type ConnectAppRequest,
+  type ConnectAppResult,
+} from "./connect";
 export {
-  callTool,
-  type CallToolDeps,
-  type CallToolRequest,
-  type CallToolResult,
-} from "./call-tool";
+  disconnectApp,
+  type DisconnectAppDeps,
+  type DisconnectAppRequest,
+  type DisconnectAppResult,
+} from "./disconnect";
 export {
-  connectService,
-  type ConnectServiceDeps,
-  type ConnectServiceRequest,
-  type ConnectServiceResult,
-} from "./connect-service";
-export {
-  disconnectService,
-  type DisconnectServiceDeps,
-  type DisconnectServiceRequest,
-  type DisconnectServiceResult,
-} from "./disconnect-service";
-export {
-  listServices,
-  type ListServicesDeps,
-  type ServiceListing,
-} from "./list-services";
+  executeTool,
+  type ExecuteToolDeps,
+  type ExecuteToolRequest,
+  type ExecuteToolResult,
+} from "./execute";

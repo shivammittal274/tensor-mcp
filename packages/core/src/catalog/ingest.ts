@@ -1,8 +1,8 @@
-import { defaultAuthHeaders, type RemoteMcpConfig } from "../remote-mcp";
+import { defaultAuthHeaders, type RemoteMcpConfig } from "../transports/remote";
 import type { TokenBundle } from "../stores/types";
-import { connectMcpClient } from "../subprocess/mcp-client";
-import { spawnService } from "../subprocess/spawn-service";
-import type { SpawnConfig } from "../subprocess/types";
+import { connectMcpClient } from "../transports/stdio";
+import { spawnService } from "../transports/stdio-spawn";
+import type { SpawnConfig } from "../transports/types";
 import type { Catalog, CatalogTool } from "./catalog";
 
 export interface IngestServiceConfig {

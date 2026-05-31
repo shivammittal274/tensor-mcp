@@ -1,5 +1,8 @@
-// Service abstraction
+// Public surface of @tensor-mcp/core. Anything not re-exported here is
+// implementation detail. Keep this file alphabetically grouped by domain
+// so a glance tells you where a name lives.
 
+// ─── auth ────────────────────────────────────────────────────────────────────
 export * from "./auth";
 export type {
   AuthIO,
@@ -8,31 +11,49 @@ export type {
   ConnectOptions,
 } from "./auth/types";
 // Re-export the SDK's auth-server metadata type so service entries can declare
-// `staticOAuthAuth` configs without a direct dependency on the SDK.
+// `staticOAuthAuth` configs without a direct SDK dependency.
 export type { AuthorizationServerMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+
+// ─── catalog ─────────────────────────────────────────────────────────────────
 export * from "./catalog";
-export * from "./mcp";
-export * from "./search";
-export { SemanticSearch } from "./search/semantic";
-export {
-  reciprocalRankFusion,
-  type FusionResult,
-  type RankedItem,
-} from "./search/rrf";
+
+// ─── embeddings ──────────────────────────────────────────────────────────────
 export { getEmbedder, type Embedder } from "./embeddings/embedder";
 export {
-  defaultAuthHeaders,
-  remoteMcp,
-  type RemoteMcpConfig,
-} from "./remote-mcp";
-export { defineService, type Service } from "./service";
-// Re-exported sub-modules for convenience
+  ensureEmbeddings,
+  embeddingsCacheDir,
+  type EnsureResult,
+} from "./embeddings/ensure";
+
+// ─── meta-tool implementations (what `tensor-mcp serve` exposes) ─────────────
+export * from "./mcp";
+
+// ─── search (single entry point) ─────────────────────────────────────────────
+export {
+  search,
+  type SearchRequest,
+  type SearchResult,
+  type ToolHit,
+  type MissingConnection,
+} from "./search/search";
+export {
+  summarizeSchema,
+  type InputShape,
+  type ParamSummary,
+} from "./search/schema-summary";
+
+// ─── service abstraction + bundled registry ──────────────────────────────────
+export { defineService, type Service } from "./defineService";
+export {
+  SERVICES,
+  getService,
+  listServices,
+  listConnectableServices,
+} from "./services";
+
+// ─── stores (keychain, connections, in-memory test impl) ─────────────────────
 export * from "./stores";
-// Type contracts
 export type { KeyValueStore, TokenBundle } from "./stores/types";
-export * from "./subprocess";
-export type {
-  SpawnConfig,
-  SpawnedProcess,
-  SpawnOptions,
-} from "./subprocess/types";
+
+// ─── transports (stdio subprocess + remote streamable HTTP) ──────────────────
+export * from "./transports";

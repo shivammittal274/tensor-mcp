@@ -10,5 +10,11 @@
       "typescript": "^5.9.2",
       "vitest": "^3.2.4"
     }
+  },
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "start": "bun run packages/cli/src/index.ts",
+    "test": "bun test",
+    "typecheck": "bun --filter '*' run typecheck"
   }
 }
