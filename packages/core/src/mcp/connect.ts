@@ -30,6 +30,12 @@ export interface ConnectAppRequest {
    * apps (DCR + static) and no-auth apps.
    */
   token?: string;
+  /**
+   * For multi-field paste services (PostHog instance_url, Supabase
+   * subdomain): the non-secret extra fields, keyed by the strategy's
+   * `FieldSpec.key`. Single-field PAT services ignore this.
+   */
+  extras?: Record<string, string>;
 }
 
 export interface ConnectAppResult {
@@ -41,6 +47,19 @@ export interface ConnectAppResult {
   tools_indexed?: number;
   /** When `status === "needs_token" | "not_configured"`. Next step prose. */
   instructions?: string;
+  /**
+   * When `status === "needs_token"` and the strategy needs non-secret
+   * extras alongside the primary token (PostHog instance_url, Supabase
+   * subdomain). The agent / CLI prompts the user for each, then retries
+   * with `{token, extras: {...}}`. Absent for single-field PAT services.
+   */
+  required_fields?: ReadonlyArray<{
+    key: string;
+    label: string;
+    description?: string;
+    default?: string;
+    is_secret: boolean;
+  }>;
   /**
    * When `status === "connected"`, set to `true` when the credential was
    * loaded from the OS keychain rather than freshly acquired. UX hint:
@@ -128,12 +147,20 @@ export async function connectApp(
   // ── Fresh paste: paste-style strategies need a `token` to proceed ──
   const needsTokenInput = method === "pat" || method === "api-key";
   if (needsTokenInput && (!req.token || req.token.trim() === "")) {
+    const description = def.auth.describe();
     return {
       status: "needs_token",
       app: req.app,
       display_name: def.displayName,
       auth_method: method,
-      instructions: def.auth.describe().instructions,
+      instructions: description.instructions,
+      required_fields: description.fields?.map((f) => ({
+        key: f.key,
+        label: f.label,
+        description: f.description,
+        default: f.default,
+        is_secret: f.isSecret ?? false,
+      })),
     };
   }
 
@@ -156,6 +183,9 @@ export async function connectApp(
       tokenStore: deps.tokenStore,
       oauthClientStore: deps.oauthClientStore,
       io: mergeIO(deps.io, req.token),
+      prefilled: req.token
+        ? { access_token: req.token, metadata: req.extras }
+        : undefined,
     });
   } catch (err) {
     if (err instanceof AuthNotConfiguredError) {

@@ -9,10 +9,18 @@ export type {
   AuthMethod,
   AuthStrategy,
   ConnectOptions,
+  FieldSpec,
 } from "./auth/types";
 // Re-export the SDK's auth-server metadata type so service entries can declare
 // `staticOAuthAuth` configs without a direct SDK dependency.
 export type { AuthorizationServerMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+
+// ─── bootstrap (catalog reconcile on registry-shape change) ──────────────────
+export {
+  bootstrap,
+  computeContractHash,
+  type BootstrapOptions,
+} from "./bootstrap";
 
 // ─── catalog ─────────────────────────────────────────────────────────────────
 export * from "./catalog";

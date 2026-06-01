@@ -7,16 +7,7 @@ import mapUrl from "./actions/map-url/map-url.mjs";
 import scrapePage from "./actions/scrape-page/scrape-page.mjs";
 import search from "./actions/search/search.mjs";
 
-export {
-  app,
-  crawlUrl,
-  extractData,
-  getCrawlStatus,
-  getExtractStatus,
-  mapUrl,
-  scrapePage,
-  search,
-};
+export { app, crawlUrl, extractData, getCrawlStatus, getExtractStatus, mapUrl, scrapePage, search };
 export const actions = [
   crawlUrl,
   extractData,

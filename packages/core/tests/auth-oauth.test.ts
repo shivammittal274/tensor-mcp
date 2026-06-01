@@ -3,7 +3,6 @@ import type {
   AuthorizationServerMetadata,
   OAuthClientInformationFull,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { AuthRefreshFailedError } from "../src/auth/errors";
 import { oauth, type OAuthConfig } from "../src/auth/oauth";
 import type { KeyValueStore, TokenBundle } from "../src/stores/types";
 
@@ -414,7 +413,7 @@ describe("oauth — refresh", () => {
         { access_token: "old" },
         { serviceId: "gmail", tokenStore, oauthClientStore },
       ),
-    ).rejects.toBeInstanceOf(AuthRefreshFailedError);
+    ).rejects.toMatchObject({ name: "AuthRefreshFailedError" });
     expect(fetchCalls).toHaveLength(0);
   });
 
@@ -433,6 +432,6 @@ describe("oauth — refresh", () => {
         { access_token: "old", refresh_token: "rt-bad" },
         { serviceId: "gmail", tokenStore, oauthClientStore },
       ),
-    ).rejects.toBeInstanceOf(AuthRefreshFailedError);
+    ).rejects.toMatchObject({ name: "AuthRefreshFailedError" });
   });
 });

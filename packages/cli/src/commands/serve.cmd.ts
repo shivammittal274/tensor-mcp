@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   apps,
-  Catalog,
+  bootstrap,
   connectApp,
   ConnectionsStore,
   connectionIdFor,
@@ -92,7 +92,7 @@ const CONNECT_APP_DEF = {
     "Connect an app so its tools become callable. Behavior:\n" +
     "• If a credential is already in the OS keychain (from a prior connect, or a previous `disconnect_app` that intentionally preserved it): instantly reconnects, re-ingests the catalog, returns `{status: 'connected', reused_credential: true}`. Expired OAuth tokens are refreshed transparently using the stored refresh_token. If the refresh fails the flow falls through to a fresh auth round.\n" +
     "• Fresh OAuth ('oauth-dcr' / 'oauth'): returns `{status: 'awaiting_user', auth_url}` immediately. Surface the URL to the user; the local callback server waits up to 5 minutes for them to authenticate. After they finish, poll `list_apps` until `connected: true`.\n" +
-    "• Fresh paste ('pat' / 'api-key'): pass the user-provided credential as `token`. Without `token` (and no keychain entry), returns `{status: 'needs_token'}` with the URL where the user generates one.\n" +
+    "• Fresh paste ('pat' / 'api-key'): pass the user-provided credential as `token`. Some vendors (PostHog, Supabase) also need non-secret extras (instance URL, project subdomain). When the response is `{status: 'needs_token', required_fields: [...]}`, prompt the user for each field then retry with both `token` and `extras: {<key>: <value>}`.\n" +
     "• 'no-auth': just connect; `token` ignored.\n" +
     "On success the catalog grows and `search_tools` immediately picks up the new tools.",
   inputSchema: {
@@ -104,6 +104,12 @@ const CONNECT_APP_DEF = {
         type: "string",
         description:
           "Personal Access Token / API key. Required only for `pat` and `api-key` auth methods.",
+      },
+      extras: {
+        type: "object",
+        description:
+          "Non-secret extra fields a multi-field paste service needs alongside `token` (PostHog `instance_url`, Supabase `subdomain`). Keys come from `required_fields[].key` in the previous `needs_token` response. Single-field PAT services ignore this.",
+        additionalProperties: { type: "string" },
       },
     },
   },
@@ -151,8 +157,7 @@ export interface ServeOptions {
  */
 export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
   log("opening catalog...");
-  const catalog = new Catalog({ path: options.catalogPath });
-  await catalog.open();
+  const catalog = await bootstrap({ catalogPath: options.catalogPath });
 
   log("opening stores...");
   const tokenStore = new TokenStore();
@@ -189,6 +194,7 @@ export async function runMcpServer(options: ServeOptions = {}): Promise<void> {
           asMcpRequest<Parameters<typeof executeTool>[0]>(args),
           {
             tokenStore,
+            connections,
             getRemote: (app) => SERVICES[app]?.remote,
             getPipedream: (app) => SERVICES[app]?.pipedream,
             tryRefresh: async (app) => {

@@ -1,5 +1,6 @@
 import { withRefreshLock } from "../auth/refresh-lock";
 import type { PipedreamServiceConfig } from "../defineService";
+import type { ConnectionRecord } from "../stores/connections-store";
 import {
   connectionIdFor,
   type KeyValueStore,
@@ -35,6 +36,15 @@ export interface ExecuteToolResult {
 
 export interface ExecuteToolDeps {
   tokenStore: Pick<KeyValueStore<TokenBundle>, "get">;
+  /**
+   * Active-connection registry. `executeTool` gates on this — when the app
+   * isn't here, calls are refused with "'<app>' is not connected" even if
+   * a credential survives in the keychain from a prior connect. Lets
+   * `disconnect` actually deactivate the app without erasing the credential
+   * (which keeps reconnect instant). Optional only for back-compat with
+   * older callers; pass it in all new code.
+   */
+  connections?: Pick<KeyValueStore<ConnectionRecord>, "get">;
   /** Returns the app's hosted-MCP descriptor, if any. */
   getRemote?: (app: string) => RemoteMcpConfig | undefined;
   /** Returns the app's Pipedream-component descriptor, if any. */
@@ -97,7 +107,19 @@ export async function executeTool(
     throw new Error(`unknown app '${req.app}'`);
   }
 
-  const stored = await deps.tokenStore.get(connectionIdFor(req.app));
+  const connectionId = connectionIdFor(req.app);
+
+  // Connection gate: the canonical "is this app active right now?" signal
+  // lives in connections.json, not the keychain (which intentionally
+  // outlives `disconnect`).
+  if (deps.connections) {
+    const active = await deps.connections.get(connectionId);
+    if (!active) {
+      throw new Error(`'${req.app}' is not connected`);
+    }
+  }
+
+  const stored = await deps.tokenStore.get(connectionId);
   if (!stored) {
     throw new Error(`'${req.app}' is not connected`);
   }

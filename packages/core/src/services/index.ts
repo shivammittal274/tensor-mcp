@@ -27,17 +27,35 @@
 import type { Service } from "../defineService";
 import anthropic from "./anthropic";
 import asana from "./asana";
-import braveSearch from "./brave_search_api";
+import braveSearchApi from "./brave_search_api";
 import calCom from "./cal-com";
 import confluence from "./confluence";
+import discordBot from "./discord_bot";
+import exa from "./exa";
 import firecrawl from "./firecrawl";
 import github from "./github";
+import gitlab from "./gitlab";
+import gmail from "./gmail";
+import googleCalendar from "./google_calendar";
+import googleDocs from "./google_docs";
+import googleDrive from "./google_drive";
+import googleMeet from "./google_meet";
+import googleSheets from "./google_sheets";
 import jira from "./jira";
 import linear from "./linear";
 import notion from "./notion";
-import slack from "./slack";
+import posthog from "./posthog";
+import slackV2 from "./slack_v2";
+import stripe from "./stripe";
+import supabase from "./supabase";
 import tavily from "./tavily";
+import telegramBotApi from "./telegram_bot_api";
+import youtubeDataApi from "./youtube_data_api";
 
+// Folder name = upstream Pipedream component name = service id. This 1:1
+// mapping lets `scripts/sync-pipedream.ts` re-lift any service from
+// github.com/PipedreamHQ/pipedream/components/<id>/ without per-service
+// rename tables. Display names stay friendly via Service.displayName.
 const ALL: Service[] = [
   linear,
   notion,
@@ -45,12 +63,26 @@ const ALL: Service[] = [
   confluence,
   asana,
   calCom,
-  slack,
+  slackV2,
   github,
   anthropic,
-  braveSearch,
+  braveSearchApi,
   tavily,
   firecrawl,
+  gmail,
+  googleCalendar,
+  googleDrive,
+  googleDocs,
+  googleSheets,
+  googleMeet,
+  youtubeDataApi,
+  discordBot,
+  telegramBotApi,
+  stripe,
+  exa,
+  gitlab,
+  posthog,
+  supabase,
 ];
 
 export const SERVICES: Record<string, Service> = Object.fromEntries(
