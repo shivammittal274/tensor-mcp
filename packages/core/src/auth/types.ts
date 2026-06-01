@@ -26,9 +26,12 @@ export interface AuthStrategy {
 
   /**
    * Human-readable description shown in `tensor-mcp connect <service>`
-   * before the strategy runs. Returns instructions or empty string.
+   * before the strategy runs. `fields` enumerates any extra non-secret
+   * configuration the user must provide alongside the primary credential
+   * (e.g. PostHog's `instance_url`, Supabase's `subdomain`). When absent
+   * or empty, the strategy only needs the single pasted token.
    */
-  describe(): { instructions: string };
+  describe(): { instructions: string; fields?: readonly FieldSpec[] };
 
   /**
    * Run the strategy interactively. On success, persists the bundle and
@@ -58,6 +61,36 @@ export interface ConnectOptions {
   oauthClientStore: KeyValueStore<OAuthClientInformationFull>;
   /** Optional injection for tests (overrides browser-opening, prompt, etc). */
   io?: AuthIO;
+  /**
+   * Pre-filled credential — when supplied, the strategy skips interactive
+   * prompts. Used by the MCP `connect_app` path (no TTY) and by the CLI
+   * `connect <app> <token>` shortcut. For multi-field PAT services
+   * (PostHog, Supabase) the metadata map carries the extras alongside the
+   * primary token.
+   */
+  prefilled?: {
+    access_token: string;
+    metadata?: Record<string, string>;
+  };
+}
+
+/**
+ * One extra field a paste-token strategy needs in addition to the primary
+ * credential. Used by services where a single Bearer token isn't enough:
+ * PostHog needs the `instance_url`, Supabase needs the project `subdomain`,
+ * self-hosted GitLab needs `base_api_url`.
+ */
+export interface FieldSpec {
+  /** Storage key under `TokenBundle.metadata`. */
+  key: string;
+  /** UI label — what the CLI prompt + MCP form display. */
+  label: string;
+  /** Optional helper text shown next to the prompt / form field. */
+  description?: string;
+  /** When set, an empty user response uses this. CLI shows it in the prompt. */
+  default?: string;
+  /** `true` for secrets (CLI/MCP should mask input). Defaults to `false`. */
+  isSecret?: boolean;
 }
 
 export interface RefreshOptions {

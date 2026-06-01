@@ -30,7 +30,6 @@ mock.module("@modelcontextprotocol/sdk/client/auth.js", () => ({
 }));
 
 const { dcrAuth } = await import("../src/auth/dcr");
-const { AuthRefreshFailedError } = await import("../src/auth/errors");
 
 class InlineMemoryStore<T> implements KeyValueStore<T> {
   #data = new Map<string, T>();
@@ -246,6 +245,6 @@ describe("dcrAuth", () => {
         { access_token: "old", refresh_token: "rt-1" },
         { serviceId: "linear", tokenStore, oauthClientStore },
       ),
-    ).rejects.toBeInstanceOf(AuthRefreshFailedError);
+    ).rejects.toMatchObject({ name: "AuthRefreshFailedError" });
   });
 });

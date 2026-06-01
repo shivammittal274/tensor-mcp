@@ -1,6 +1,6 @@
 import {
   apps,
-  Catalog,
+  bootstrap,
   connectionIdFor,
   ConnectionsStore,
   listServices,
@@ -14,8 +14,7 @@ import { emitErr, emitOk } from "../utils/json";
  * Always JSON. No flags — keep the surface minimal.
  */
 export async function appsCmd(): Promise<number> {
-  const catalog = new Catalog();
-  await catalog.open();
+  const catalog = await bootstrap();
   const connections = new ConnectionsStore();
   try {
     const records = await apps({

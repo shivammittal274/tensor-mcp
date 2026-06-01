@@ -1,5 +1,6 @@
 import {
   connectionIdFor,
+  ConnectionsStore,
   executeTool,
   getService,
   OAuthClientStore,
@@ -36,12 +37,14 @@ export async function executeCmd(
 
   const tokenStore = new TokenStore();
   const oauthClientStore = new OAuthClientStore();
+  const connections = new ConnectionsStore();
 
   try {
     const result = await executeTool(
       { app, tool, input },
       {
         tokenStore,
+        connections,
         getRemote: (a) => (a === app ? def.remote : undefined),
         getPipedream: (a) => (a === app ? def.pipedream : undefined),
         tryRefresh: async (a) => {

@@ -70,7 +70,12 @@ async function init(): Promise<Embedder> {
     throw err;
   }
 
-  let model: { embed: (texts: string[], n: number) => AsyncIterable<unknown> };
+  let model: {
+    embed: (
+      texts: string[],
+      n: number,
+    ) => AsyncIterable<Iterable<Float32Array | number[]>>;
+  };
   try {
     model = await (
       FlagEmbedding as {

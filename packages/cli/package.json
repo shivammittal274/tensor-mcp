@@ -1,6 +1,6 @@
 {
   "name": "@tensor-mcp/cli",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "bin": { "tensor-mcp": "./src/index.ts" },

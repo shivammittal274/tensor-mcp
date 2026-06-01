@@ -1,0 +1,56 @@
+import type {
+  PipedreamActionModule,
+  PipedreamAppModule,
+} from "../../transports/pipedream/types";
+
+export const app: PipedreamAppModule;
+export const addEmojiReaction: PipedreamActionModule;
+export const addReaction: PipedreamActionModule;
+export const approveWorkflow: PipedreamActionModule;
+export const archiveChannel: PipedreamActionModule;
+export const browseFiles: PipedreamActionModule;
+export const createChannel: PipedreamActionModule;
+export const createReminder: PipedreamActionModule;
+export const deleteFile: PipedreamActionModule;
+export const deleteMessage: PipedreamActionModule;
+export const editMessage: PipedreamActionModule;
+export const findMessage: PipedreamActionModule;
+export const findUserByEmail: PipedreamActionModule;
+export const findUserById: PipedreamActionModule;
+export const getChannelDetails: PipedreamActionModule;
+export const getChannelHistory: PipedreamActionModule;
+export const getCurrentUser: PipedreamActionModule;
+export const getFile: PipedreamActionModule;
+export const getThreadReplies: PipedreamActionModule;
+export const getUserDetails: PipedreamActionModule;
+export const inviteUserToChannel: PipedreamActionModule;
+export const kickUser: PipedreamActionModule;
+export const listChannels: PipedreamActionModule;
+export const listEmojis: PipedreamActionModule;
+export const listFiles: PipedreamActionModule;
+export const listGroupMembers: PipedreamActionModule;
+export const listIconEmojiOptions: PipedreamActionModule;
+export const listMembersInChannel: PipedreamActionModule;
+export const listMessages: PipedreamActionModule;
+export const listReminderOptions: PipedreamActionModule;
+export const listReplies: PipedreamActionModule;
+export const listUserGroupOptions: PipedreamActionModule;
+export const listUsers: PipedreamActionModule;
+export const postMessage: PipedreamActionModule;
+export const replyToAMessage: PipedreamActionModule;
+export const search: PipedreamActionModule;
+export const sendBlockKitMessage: PipedreamActionModule;
+export const sendLargeMessage: PipedreamActionModule;
+export const sendMessage: PipedreamActionModule;
+export const sendMessageAdvanced: PipedreamActionModule;
+export const sendMessageToChannel: PipedreamActionModule;
+export const sendMessageToUserOrGroup: PipedreamActionModule;
+export const setChannelDescription: PipedreamActionModule;
+export const setChannelTopic: PipedreamActionModule;
+export const setStatus: PipedreamActionModule;
+export const updateGroupMembers: PipedreamActionModule;
+export const updateMessage: PipedreamActionModule;
+export const updateProfile: PipedreamActionModule;
+export const uploadFile: PipedreamActionModule;
+export const verifySlackSignature: PipedreamActionModule;
+export const actions: PipedreamActionModule[];

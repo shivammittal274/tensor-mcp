@@ -143,6 +143,24 @@ export class Catalog {
     db.run("DELETE FROM tools WHERE service = ?", [service]);
   }
 
+  /**
+   * Delete rows for any `service` not in `registeredIds`. Used by
+   * `bootstrap` to nuke zombie rows after a service id rename or removal.
+   * Returns the row count removed for logging.
+   */
+  async dropOrphans(registeredIds: readonly string[]): Promise<number> {
+    const db = this.ensureOpen();
+    if (registeredIds.length === 0) {
+      const r = db.prepare("DELETE FROM tools").run();
+      return r.changes;
+    }
+    const placeholders = registeredIds.map(() => "?").join(",");
+    const r = db
+      .prepare(`DELETE FROM tools WHERE service NOT IN (${placeholders})`)
+      .run(...registeredIds);
+    return r.changes;
+  }
+
   /** Bulk-update only the embedding column. Cheap on top of a prior ingest. */
   async updateEmbeddings(
     rows: Array<{ service: string; toolName: string; embedding: Float32Array }>,

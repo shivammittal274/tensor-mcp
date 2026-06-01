@@ -11,18 +11,18 @@ export interface PipedreamToolDescriptor {
 
 /**
  * Turn a Pipedream action's `key` (e.g. `slack_v2-send-message`) into a
- * tensor-mcp tool name (e.g. `send_message_to_channel`). We strip the
- * leading `<app>-` segment and replace hyphens with underscores so the
- * names match the catalog's snake_case convention.
+ * tensor-mcp tool name (e.g. `send_message`). Strips the leading `<app>-`
+ * segment and replaces hyphens with underscores so the names match the
+ * catalog's snake_case convention.
+ *
+ * No domain-level renames — they collide once upstream ships multiple
+ * actions whose stripped keys overlap (e.g. `slack_v2-send-message` and
+ * `slack_v2-send-message-to-channel` both collapsed to
+ * `send_message_to_channel` and broke catalog ingest).
  */
 export function toolNameForAction(key: string): string {
   const stripped = key.replace(/^[a-z0-9_]+-/, "");
-  const underscored = stripped.replace(/-/g, "_");
-  // Domain rename: Pipedream's "send-message" maps to the spec name
-  // "send_message_to_channel" for parity with other tensor-mcp services.
-  if (underscored === "send_message") return "send_message_to_channel";
-  if (underscored === "find_message") return "search_messages";
-  return underscored;
+  return stripped.replace(/-/g, "_");
 }
 
 export function listPipedreamTools(

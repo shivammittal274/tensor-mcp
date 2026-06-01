@@ -1,5 +1,5 @@
 import {
-  Catalog,
+  bootstrap,
   ConnectionsStore,
   disconnectApp,
   getService,
@@ -20,8 +20,7 @@ export async function disconnectCmd(app: string): Promise<number> {
     return emitErr(`unknown app '${app}'`);
   }
   const connections = new ConnectionsStore();
-  const catalog = new Catalog();
-  await catalog.open();
+  const catalog = await bootstrap();
 
   try {
     const result = await disconnectApp(

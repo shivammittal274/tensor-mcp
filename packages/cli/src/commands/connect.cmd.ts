@@ -1,5 +1,5 @@
 import {
-  Catalog,
+  bootstrap,
   connectApp,
   ConnectionsStore,
   getService,
@@ -29,8 +29,7 @@ export async function connectCmd(
   const tokenStore = new TokenStore();
   const oauthClientStore = new OAuthClientStore();
   const connections = new ConnectionsStore();
-  const catalog = new Catalog();
-  await catalog.open();
+  const catalog = await bootstrap();
 
   // Stderr breadcrumbs so the user sees what's happening during OAuth/ingest.
   process.stderr.write(`tensor-mcp connect: ${def.displayName}...\n`);

@@ -1,4 +1,4 @@
-import { Catalog, search } from "@tensor-mcp/core";
+import { bootstrap, search } from "@tensor-mcp/core";
 import { emitErr, emitOk } from "../utils/json";
 
 export interface SearchCmdOpts {
@@ -20,8 +20,7 @@ export async function searchCmd(
   query: string,
   opts: SearchCmdOpts,
 ): Promise<number> {
-  const catalog = new Catalog();
-  await catalog.open();
+  const catalog = await bootstrap();
   try {
     const result = await search(catalog, {
       query,
