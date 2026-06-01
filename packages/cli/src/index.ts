@@ -24,8 +24,14 @@ cli
     "Connect an app. Reuses the OS-keychain credential if present (no re-auth). " +
       "Otherwise: OAuth opens a browser; PAT/API-key reads optional [token] arg or prompts.",
   )
-  .action(async (app: string, token?: string) =>
-    process.exit(await connectCmd(app, token)),
+  .option(
+    "--extras <kv>",
+    "Multi-field credentials. Comma-separated key=value pairs (e.g. " +
+      "--extras 'subdomain=abcdef' for Supabase, --extras 'instance_url=eu.i.posthog.com' " +
+      "for PostHog EU). Run `connect <app>` once to see what fields the app expects.",
+  )
+  .action(async (app: string, token?: string, opts?: { extras?: string }) =>
+    process.exit(await connectCmd(app, token, opts?.extras)),
   );
 
 cli

@@ -147,13 +147,19 @@ export class Catalog {
    * Delete rows for any `service` not in `registeredIds`. Used by
    * `bootstrap` to nuke zombie rows after a service id rename or removal.
    * Returns the row count removed for logging.
+   *
+   * Refuses to run when the allow-list is empty — the semantic answer
+   * ("delete everything") is almost always a wiring bug in the caller
+   * (e.g. `listServices()` returned `[]` because of a registry import
+   * failure). Use `dropService` per-id if you really do want to wipe.
    */
   async dropOrphans(registeredIds: readonly string[]): Promise<number> {
-    const db = this.ensureOpen();
     if (registeredIds.length === 0) {
-      const r = db.prepare("DELETE FROM tools").run();
-      return r.changes;
+      throw new Error(
+        "dropOrphans: refusing to delete all rows — pass at least one registered id",
+      );
     }
+    const db = this.ensureOpen();
     const placeholders = registeredIds.map(() => "?").join(",");
     const r = db
       .prepare(`DELETE FROM tools WHERE service NOT IN (${placeholders})`)

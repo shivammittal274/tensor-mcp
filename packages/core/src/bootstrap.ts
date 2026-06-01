@@ -44,14 +44,28 @@ export async function bootstrap(
   if (stored === expected) return catalog;
 
   const registeredIds = services.map((s) => s.id);
+  const registeredSet = new Set(registeredIds);
   await catalog.dropOrphans(registeredIds);
 
+  // Sweep orphan connection records too. When a service id is renamed
+  // (slack → slack_v2) or removed, the record left behind in
+  // connections.json is invisible to `apps` (the registry filter hides
+  // it) but lingers as clutter. The catalog is already cleaned by
+  // `dropOrphans` above; doing connections in the same pass keeps both
+  // stores aligned with the registry.
   const connections = new ConnectionsStore({ path: opts.connectionsPath });
-  const connected = new Set(
-    (await connections.list()).map((r) => r.value.service),
-  );
+  const allConns = await connections.list();
+  const stillConnected = new Set<string>();
+  for (const { key, value } of allConns) {
+    if (registeredSet.has(value.service)) {
+      stillConnected.add(value.service);
+    } else {
+      await connections.delete(key);
+    }
+  }
+
   for (const service of services) {
-    if (!connected.has(service.id)) continue;
+    if (!stillConnected.has(service.id)) continue;
     const pd = "pipedream" in service ? service.pipedream : undefined;
     if (!pd) continue;
     await ingestService(catalog, { service: service.id, pipedream: pd });
@@ -79,7 +93,6 @@ export function computeContractHash(services: readonly Service[]): string {
         const desc = tool.description ?? "";
         lines.push(`${s.id}|${tool.name}|${hash(schema)}|${hash(desc)}`);
       }
-      continue;
       continue;
     }
     lines.push(`${s.id}|<remote>`);

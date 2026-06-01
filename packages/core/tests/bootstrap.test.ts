@@ -123,10 +123,11 @@ describe("Catalog.dropOrphans", () => {
     expect((await catalog.listByService("alpha")).length).toBe(1);
   });
 
-  it("removes all rows when allow-list is empty", async () => {
-    const removed = await catalog.dropOrphans([]);
-    expect(removed).toBe(2);
-    expect((await catalog.listAll()).length).toBe(0);
+  it("refuses to delete every row when allow-list is empty", async () => {
+    await expect(catalog.dropOrphans([])).rejects.toThrow(
+      /refusing to delete all/,
+    );
+    expect((await catalog.listAll()).length).toBe(2);
   });
 
   it("is a no-op when nothing is orphaned", async () => {
@@ -189,6 +190,34 @@ describe("bootstrap", () => {
     });
     expect((await c2.listByService("zombie")).length).toBe(0);
     c2.close();
+  });
+
+  it("drops orphan connection records when a service id disappears", async () => {
+    // Seed connections.json with a record for the soon-to-be-removed id.
+    const conns = new ConnectionsStore({ path: connectionsPath });
+    await conns.set("zombie:default", {
+      service: "zombie",
+      connectionId: "zombie:default",
+      connectedAt: Date.now(),
+    });
+    await conns.set("alpha:default", {
+      service: "alpha",
+      connectionId: "alpha:default",
+      connectedAt: Date.now(),
+    });
+
+    // Registry only contains 'alpha' — 'zombie' is gone.
+    const c = await bootstrap({
+      catalogPath,
+      connectionsPath,
+      services: [pipedreamService("alpha", ["x"])],
+    });
+    c.close();
+
+    // Reload + verify zombie was swept; alpha was kept.
+    const reread = await new ConnectionsStore({ path: connectionsPath }).list();
+    const services = reread.map((r) => r.value.service).sort();
+    expect(services).toEqual(["alpha"]);
   });
 
   it("re-ingests a connected Pipedream service when its tool set changes", async () => {
