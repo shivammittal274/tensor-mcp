@@ -35,6 +35,7 @@ export async function runPipedreamAction(opts: {
   const appInstance = buildAppInstance(app, readAuth);
 
   const ctx: Record<string, any> = Object.create(null);
+  const missingRequired: string[] = [];
 
   for (const [name, rawProp] of Object.entries(action.props ?? {})) {
     if (isAppLike(rawProp)) {
@@ -51,7 +52,24 @@ export async function runPipedreamAction(opts: {
     // optional fields. We mirror that — the JSON Schema marks `default`-
     // bearing props as not required.
     const def = (rawProp as { default?: unknown }).default;
-    if (def !== undefined) ctx[name] = def;
+    if (def !== undefined) {
+      ctx[name] = def;
+      continue;
+    }
+    // Same `required` rule as propsToJsonSchema:line 63. If the agent
+    // received the action's schema via search_tools, the schema's
+    // `required` array names exactly the fields we'd reject here. Catching
+    // upfront saves a vendor round-trip (otherwise the action templates
+    // `undefined` into the request URL and returns a confusing 404).
+    if (!(rawProp as { optional?: boolean }).optional) {
+      missingRequired.push(name);
+    }
+  }
+
+  if (missingRequired.length > 0) {
+    throw new Error(
+      `Missing required input field${missingRequired.length === 1 ? "" : "s"}: ${missingRequired.join(", ")}`,
+    );
   }
 
   for (const [name, fn] of Object.entries(action.methods ?? {})) {
@@ -74,8 +92,41 @@ export async function runPipedreamAction(opts: {
     },
   };
 
-  const ret = await action.run.call(ctx, { $ });
-  return { return: ret, summary, exports: exportsBag };
+  // Lifted Pipedream action code is byte-identical to upstream — several
+  // app modules call `console.error(exception)` from their internal catch
+  // blocks before rethrowing with a friendly message, and Bun's compiled
+  // runtime separately prints a formatted source-context block when a
+  // deeply nested promise rejects, regardless of whether the `await` site
+  // catches. Both pollute the clean JSON error our wrapper emits. Two
+  // small interventions kill the noise without changing semantics:
+  //   1. Silence `console.error` for the action window (restored in
+  //      `finally`). The action's catch can no longer dump the raw
+  //      Octokit/axios bundle stack.
+  //   2. Attach `.then(onFulfilled, onRejected)` directly to the action's
+  //      promise. The rejection is "owned" by the .then path, so Bun's
+  //      compiled-binary reporter stops flagging it as unhandled. The
+  //      `await` still returns the settled tuple normally.
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  let settled:
+    | { ok: true; value: unknown }
+    | { ok: false; error: unknown };
+  try {
+    settled = await action.run
+      .call(ctx, { $ })
+      .then(
+        (v: unknown) => ({ ok: true as const, value: v }),
+        (err: unknown) => ({ ok: false as const, error: err }),
+      );
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  if (!settled.ok) {
+    const msg = (settled.error as Error)?.message ?? String(settled.error);
+    throw new Error(msg);
+  }
+  return { return: settled.value, summary, exports: exportsBag };
 }
 
 function buildAppInstance(
